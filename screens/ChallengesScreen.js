@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   View, Text, SectionList, TouchableOpacity,
-  StyleSheet, ActivityIndicator,
+  StyleSheet, ActivityIndicator, Animated,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import { CHALLENGES } from '../data/challenges';
 
@@ -13,15 +14,18 @@ const DIFFICULTY = {
 };
 
 const SECTIONS = [
-  { title: 'Easy',   xp: 10, data: CHALLENGES.filter(c => c.difficulty === 'Easy') },
-  { title: 'Medium', xp: 25, data: CHALLENGES.filter(c => c.difficulty === 'Medium') },
-  { title: 'Hard',   xp: 50, data: CHALLENGES.filter(c => c.difficulty === 'Hard') },
+  { title: 'Easy',   data: CHALLENGES.filter(c => c.difficulty === 'Easy') },
+  { title: 'Medium', data: CHALLENGES.filter(c => c.difficulty === 'Medium') },
+  { title: 'Hard',   data: CHALLENGES.filter(c => c.difficulty === 'Hard') },
 ];
 
 export default function ChallengesScreen() {
   const [completedIds, setCompletedIds] = useState(new Set());
   const [loading, setLoading] = useState(true);
   const [completing, setCompleting] = useState(null);
+
+  const progressAnim = useRef(new Animated.Value(0)).current;
+  const listAnim     = useRef(new Animated.Value(0)).current;
 
   useEffect(() => { fetchCompleted(); }, []);
 
@@ -35,6 +39,18 @@ export default function ChallengesScreen() {
     setLoading(false);
   }
 
+  const totalXP   = CHALLENGES.filter(c => completedIds.has(c.id)).reduce((s, c) => s + c.xp, 0);
+  const pct       = CHALLENGES.length > 0 ? completedIds.size / CHALLENGES.length : 0;
+
+  useEffect(() => {
+    if (!loading) {
+      Animated.parallel([
+        Animated.timing(progressAnim, { toValue: pct, duration: 900, useNativeDriver: false }),
+        Animated.timing(listAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
+      ]).start();
+    }
+  }, [loading, pct]);
+
   async function handleComplete(challengeId) {
     setCompleting(challengeId);
     const { data: { user } } = await supabase.auth.getUser();
@@ -45,22 +61,14 @@ export default function ChallengesScreen() {
     setCompleting(null);
   }
 
-  const totalXP = CHALLENGES
-    .filter(c => completedIds.has(c.id))
-    .reduce((sum, c) => sum + c.xp, 0);
-
-  const progressPct = CHALLENGES.length > 0 ? completedIds.size / CHALLENGES.length : 0;
-
   function renderSectionHeader({ section }) {
     const { color } = DIFFICULTY[section.title];
-    const sectionCompleted = section.data.filter(c => completedIds.has(c.id)).length;
+    const done = section.data.filter(c => completedIds.has(c.id)).length;
     return (
-      <View style={styles.sectionHeader}>
-        <View style={[styles.sectionDot, { backgroundColor: color }]} />
-        <Text style={[styles.sectionTitle, { color }]}>{section.title.toUpperCase()}</Text>
-        <Text style={styles.sectionCount}>
-          {sectionCompleted}/{section.data.length}
-        </Text>
+      <View style={S.sectionHeader}>
+        <View style={[S.sectionDot, { backgroundColor: color }]} />
+        <Text style={[S.sectionTitle, { color }]}>{section.title.toUpperCase()}</Text>
+        <Text style={S.sectionCount}>{done}/{section.data.length}</Text>
       </View>
     );
   }
@@ -69,29 +77,33 @@ export default function ChallengesScreen() {
     const done = completedIds.has(item.id);
     const { color, bg } = DIFFICULTY[section.title];
     return (
-      <View style={[styles.card, done && styles.cardDone]}>
-        <View style={[styles.cardAccent, { backgroundColor: color }]} />
-        <View style={styles.cardBody}>
-          <View style={styles.cardTop}>
-            <Text style={[styles.cardTitle, done && styles.cardTitleDone]} numberOfLines={1}>
+      <View style={[S.card, done && S.cardDone]}>
+        <View style={[S.cardAccent, { backgroundColor: color }]} />
+        <View style={S.cardBody}>
+          <View style={S.cardTop}>
+            <Text style={[S.cardTitle, done && S.cardTitleDone]} numberOfLines={1}>
               {item.title}
             </Text>
-            <View style={[styles.xpBadge, { backgroundColor: bg }]}>
-              <Text style={[styles.xpText, { color }]}>+{item.xp} XP</Text>
+            <View style={[S.xpBadge, { backgroundColor: bg }]}>
+              <Text style={[S.xpText, { color }]}>+{item.xp} XP</Text>
             </View>
           </View>
-          <Text style={styles.cardDesc} numberOfLines={2}>{item.description}</Text>
+          <Text style={S.cardDesc} numberOfLines={2}>{item.description}</Text>
           {done ? (
-            <Text style={[styles.completedLabel, { color }]}>✓ Completed</Text>
+            <View style={S.doneRow}>
+              <Ionicons name="checkmark-circle" size={14} color={color} />
+              <Text style={[S.doneLabel, { color }]}>Completed</Text>
+            </View>
           ) : (
             <TouchableOpacity
-              style={[styles.completeButton, { backgroundColor: color }]}
+              style={[S.completeBtn, { backgroundColor: color }]}
               onPress={() => handleComplete(item.id)}
               disabled={completing === item.id}
+              activeOpacity={0.8}
             >
-              <Text style={styles.completeButtonText}>
-                {completing === item.id ? 'Saving...' : 'Mark Complete'}
-              </Text>
+              {completing === item.id
+                ? <ActivityIndicator size="small" color="#fff" />
+                : <Text style={S.completeBtnText}>Mark Complete</Text>}
             </TouchableOpacity>
           )}
         </View>
@@ -101,50 +113,57 @@ export default function ChallengesScreen() {
 
   if (loading) {
     return (
-      <View style={styles.center}>
+      <View style={S.center}>
         <ActivityIndicator size="large" color="#4F46E5" />
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
-      <SectionList
-        sections={SECTIONS}
-        keyExtractor={item => item.id}
-        renderItem={renderChallenge}
-        renderSectionHeader={renderSectionHeader}
-        stickySectionHeadersEnabled={false}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.listContent}
-        ListHeaderComponent={
-          <View style={styles.statsCard}>
-            <View style={styles.statsRow}>
-              <View>
-                <Text style={styles.statsXP}>{totalXP} XP</Text>
-                <Text style={styles.statsLabel}>earned so far</Text>
+    <View style={S.container}>
+      <Animated.View style={{ opacity: listAnim }}>
+        <SectionList
+          sections={SECTIONS}
+          keyExtractor={item => item.id}
+          renderItem={renderChallenge}
+          renderSectionHeader={renderSectionHeader}
+          stickySectionHeadersEnabled={false}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={S.listContent}
+          ListHeaderComponent={
+            <View style={S.statsCard}>
+              <View style={S.statsRow}>
+                <View>
+                  <Text style={S.statsXP}>{totalXP}</Text>
+                  <Text style={S.statsXPLabel}>XP earned</Text>
+                </View>
+                <View style={S.statsDivider} />
+                <View style={S.statsRight}>
+                  <Text style={S.statsCount}>
+                    {completedIds.size}
+                    <Text style={S.statsTotal}>/{CHALLENGES.length}</Text>
+                  </Text>
+                  <Text style={S.statsXPLabel}>completed</Text>
+                </View>
               </View>
-              <View style={styles.statsRight}>
-                <Text style={styles.statsCount}>
-                  {completedIds.size}
-                  <Text style={styles.statsTotal}>/{CHALLENGES.length}</Text>
-                </Text>
-                <Text style={styles.statsLabel}>completed</Text>
+              <View style={S.progressTrack}>
+                <Animated.View style={[
+                  S.progressFill,
+                  { width: progressAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }) },
+                ]} />
               </View>
+              <Text style={S.progressPct}>{Math.round(pct * 100)}% complete</Text>
             </View>
-            <View style={styles.progressTrack}>
-              <View style={[styles.progressFill, { width: `${progressPct * 100}%` }]} />
-            </View>
-          </View>
-        }
-      />
+          }
+        />
+      </Animated.View>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F3F4F6' },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+const S = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#F8F9FF' },
+  center:    { flex: 1, alignItems: 'center', justifyContent: 'center' },
   listContent: { padding: 16, paddingBottom: 32 },
 
   statsCard: {
@@ -153,102 +172,51 @@ const styles = StyleSheet.create({
     padding: 20,
     marginBottom: 24,
   },
-  statsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-  },
-  statsXP: { fontSize: 28, fontWeight: '800', color: '#fff' },
-  statsCount: { fontSize: 28, fontWeight: '800', color: '#fff', textAlign: 'right' },
-  statsTotal: { fontSize: 18, fontWeight: '400', color: 'rgba(255,255,255,0.6)' },
-  statsLabel: { fontSize: 13, color: 'rgba(255,255,255,0.7)', marginTop: 2 },
-  statsRight: { alignItems: 'flex-end' },
+  statsRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 18 },
+  statsXP:  { fontSize: 30, fontWeight: '800', color: '#fff' },
+  statsXPLabel: { fontSize: 12, color: 'rgba(255,255,255,0.65)', marginTop: 2 },
+  statsDivider: { width: 1, height: 36, backgroundColor: 'rgba(255,255,255,0.2)', marginHorizontal: 20 },
+  statsRight: {},
+  statsCount: { fontSize: 30, fontWeight: '800', color: '#fff' },
+  statsTotal: { fontSize: 18, fontWeight: '400', color: 'rgba(255,255,255,0.55)' },
   progressTrack: {
-    height: 6,
-    backgroundColor: 'rgba(255,255,255,0.25)',
-    borderRadius: 3,
-    overflow: 'hidden',
+    height: 6, backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 3, overflow: 'hidden', marginBottom: 8,
   },
-  progressFill: {
-    height: '100%',
-    backgroundColor: '#fff',
-    borderRadius: 3,
-  },
+  progressFill: { height: '100%', backgroundColor: '#fff', borderRadius: 3 },
+  progressPct:  { fontSize: 12, color: 'rgba(255,255,255,0.65)' },
 
   sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
-    marginTop: 4,
+    flexDirection: 'row', alignItems: 'center',
+    marginBottom: 10, marginTop: 4, paddingHorizontal: 2,
   },
-  sectionDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 8,
-  },
-  sectionTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    letterSpacing: 0.8,
-    flex: 1,
-  },
-  sectionCount: {
-    fontSize: 13,
-    color: '#9CA3AF',
-    fontWeight: '500',
-  },
+  sectionDot:   { width: 7, height: 7, borderRadius: 4, marginRight: 8 },
+  sectionTitle: { fontSize: 12, fontWeight: '700', letterSpacing: 0.8, flex: 1 },
+  sectionCount: { fontSize: 12, color: '#94A3B8', fontWeight: '500' },
 
   card: {
-    flexDirection: 'row',
-    backgroundColor: '#fff',
-    borderRadius: 14,
-    marginBottom: 10,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
-    elevation: 2,
+    flexDirection: 'row', backgroundColor: '#fff',
+    borderRadius: 14, marginBottom: 8, overflow: 'hidden',
+    shadowColor: '#0F172A', shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05, shadowRadius: 6, elevation: 2,
   },
-  cardDone: { opacity: 0.55 },
-  cardAccent: { width: 4 },
-  cardBody: { flex: 1, padding: 14 },
-  cardTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 6,
-    gap: 8,
+  cardDone:  { opacity: 0.5 },
+  cardAccent: { width: 3 },
+  cardBody:  { flex: 1, padding: 14 },
+  cardTop:   { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5, gap: 8 },
+  cardTitle: { fontSize: 15, fontWeight: '700', color: '#0F172A', flex: 1 },
+  cardTitleDone: { textDecorationLine: 'line-through', color: '#94A3B8' },
+  cardDesc:  { fontSize: 13, color: '#64748B', lineHeight: 19, marginBottom: 12 },
+
+  xpBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20 },
+  xpText:  { fontSize: 11, fontWeight: '700' },
+
+  doneRow:   { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  doneLabel: { fontSize: 13, fontWeight: '600' },
+
+  completeBtn: {
+    alignSelf: 'flex-start', paddingHorizontal: 14, paddingVertical: 7,
+    borderRadius: 8, minWidth: 44, alignItems: 'center',
   },
-  cardTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#111827',
-    flex: 1,
-  },
-  cardTitleDone: {
-    textDecorationLine: 'line-through',
-    color: '#9CA3AF',
-  },
-  xpBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 20,
-  },
-  xpText: { fontSize: 12, fontWeight: '700' },
-  cardDesc: {
-    fontSize: 13,
-    color: '#6B7280',
-    lineHeight: 19,
-    marginBottom: 12,
-  },
-  completeButton: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 8,
-  },
-  completeButtonText: { color: '#fff', fontWeight: '600', fontSize: 13 },
-  completedLabel: { fontSize: 13, fontWeight: '700' },
+  completeBtnText: { color: '#fff', fontWeight: '600', fontSize: 13 },
 });
