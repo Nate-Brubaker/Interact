@@ -1,19 +1,36 @@
 import { useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
-  StyleSheet, Alert, KeyboardAvoidingView, Platform,
+  StyleSheet, Alert, KeyboardAvoidingView, Platform, ScrollView,
 } from 'react-native';
 import { supabase } from '../lib/supabase';
 
 export default function SignUpScreen({ navigation }) {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [firstName, setFirstName]   = useState('');
+  const [lastName, setLastName]     = useState('');
+  const [dob, setDob]               = useState('');
+  const [email, setEmail]           = useState('');
+  const [password, setPassword]     = useState('');
+  const [loading, setLoading]       = useState(false);
+
+  function formatDob(text) {
+    const digits = text.replace(/\D/g, '').slice(0, 8);
+    if (digits.length <= 2) return digits;
+    if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+    return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+  }
 
   async function handleSignUp() {
-    if (!email || !password) return;
+    if (!firstName || !email || !password) {
+      Alert.alert('Missing fields', 'First name, email and password are required.');
+      return;
+    }
     setLoading(true);
-    const { error } = await supabase.auth.signUp({ email, password });
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: { firstName, lastName, dob } },
+    });
     if (error) {
       Alert.alert('Sign Up Failed', error.message);
     } else {
@@ -27,9 +44,42 @@ export default function SignUpScreen({ navigation }) {
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      <View style={styles.inner}>
+      <ScrollView
+        contentContainerStyle={styles.inner}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
         <Text style={styles.logo}>Interact</Text>
         <Text style={styles.tagline}>Create your account</Text>
+
+        <View style={styles.row}>
+          <TextInput
+            style={[styles.input, styles.inputHalf]}
+            placeholder="First name"
+            placeholderTextColor="#9CA3AF"
+            value={firstName}
+            onChangeText={setFirstName}
+            autoCapitalize="words"
+          />
+          <TextInput
+            style={[styles.input, styles.inputHalf]}
+            placeholder="Last name"
+            placeholderTextColor="#9CA3AF"
+            value={lastName}
+            onChangeText={setLastName}
+            autoCapitalize="words"
+          />
+        </View>
+
+        <TextInput
+          style={styles.input}
+          placeholder="Date of birth (MM/DD/YYYY)"
+          placeholderTextColor="#9CA3AF"
+          value={dob}
+          onChangeText={t => setDob(formatDob(t))}
+          keyboardType="number-pad"
+          maxLength={10}
+        />
 
         <TextInput
           style={styles.input}
@@ -58,7 +108,7 @@ export default function SignUpScreen({ navigation }) {
             Already have an account? <Text style={styles.linkBold}>Sign in</Text>
           </Text>
         </TouchableOpacity>
-      </View>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
@@ -66,22 +116,15 @@ export default function SignUpScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
   inner: {
-    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 24,
+    paddingVertical: 60,
+    flexGrow: 1,
   },
-  logo: {
-    fontSize: 40,
-    fontWeight: 'bold',
-    color: '#4F46E5',
-    marginBottom: 8,
-  },
-  tagline: {
-    fontSize: 16,
-    color: '#6B7280',
-    marginBottom: 40,
-  },
+  logo: { fontSize: 40, fontWeight: 'bold', color: '#4F46E5', marginBottom: 8 },
+  tagline: { fontSize: 16, color: '#6B7280', marginBottom: 40 },
+  row: { flexDirection: 'row', gap: 10, width: '100%', marginBottom: 0 },
   input: {
     width: '100%',
     height: 52,
@@ -93,6 +136,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     color: '#111827',
   },
+  inputHalf: { flex: 1, width: undefined },
   button: {
     width: '100%',
     height: 52,

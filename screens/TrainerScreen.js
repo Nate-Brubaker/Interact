@@ -9,9 +9,10 @@ import {
   requestRecordingPermissionsAsync, setAudioModeAsync,
 } from 'expo-audio';
 import * as FileSystem from 'expo-file-system/legacy';
-import * as Speech from 'expo-speech';
 import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getSettings, INPUT_MODES } from '../lib/settings';
+import { getProfile, calculateAge } from '../lib/profile';
 
 const WAV_RECORDING_OPTIONS = {
   extension: '.wav',
@@ -49,15 +50,28 @@ const SCENARIOS = [
   { id: 'difficult',     label: 'Difficult Convo',  desc: 'Practice assertive communication',        icon: 'flash-outline',      color: '#EF4444' },
 ];
 
+const FIRST_MEETING_SCENARIOS = new Set(['first_date', 'networking', 'small_talk', 'new_friends']);
+
 function getRolePrompt(id) {
   return {
-    job_interview: 'You are a hiring manager conducting a job interview. Be professional but approachable. Ask follow-up questions based on what the candidate says.',
-    first_date:    'You are on a first date at a coffee shop. Be warm, curious, and slightly playful.',
-    networking:    'You are at a professional networking event and just met this person. Be friendly and interested in what they do.',
-    small_talk:    'You are a stranger making small talk in a casual setting. Be friendly and easy-going.',
-    new_friends:   'You are meeting someone new at a social gathering. Be warm and genuinely interested.',
-    difficult:     'You are a colleague having a difficult but important conversation. Stay calm, direct, and push back a little to practice assertive communication.',
-  }[id] ?? 'You are having a casual conversation.';
+    job_interview: `You are Marcus, a no-nonsense senior engineering manager at a mid-size tech company. You've interviewed hundreds of candidates and have little patience for vague, rehearsed, or buzzword-heavy answers. You're not mean, but you're direct — if an answer is weak you say so. You interrupt or redirect if someone starts rambling. You have high standards and the candidate needs to earn your respect.`,
+    first_date:    `You are Jamie, on a first date at a coffee shop. You're genuinely interested but not a pushover — if the conversation gets boring or one-sided you'll say so. You're witty, a little sarcastic, and quick to call out awkward silences or weird comments. You want the date to go well but you're not going to fake it.`,
+    networking:    `You are Dana, a product director at a startup. You're at a networking event and have about five minutes before you need to move on. You're friendly but busy — if someone is wasting your time with small talk you'll steer it somewhere useful. You respect people who are direct and know what they want.`,
+    small_talk:    `You are a regular person — let's say Alex — waiting in line or sitting nearby somewhere. You're open to chatting but have normal human reactions: if someone is weird or dull you'll give short answers and mentally check out. If the conversation is good you'll open up.`,
+    new_friends:   `You are Sam, meeting someone new at a friend's party. You're warm but not a golden retriever — you won't just agree with everything. If someone is being awkward or weird you'll notice and react like a normal person would. You want to actually connect, not just exchange pleasantries.`,
+    difficult:     `You are a colleague named Chris who needs to have a hard conversation — maybe about a missed deadline, a conflict, or a performance issue. You stay calm but you're firm. You don't accept non-answers or deflection. If the other person tries to dodge the issue or gets defensive, you push back clearly.`,
+  }[id] ?? 'You are having a casual conversation. Be a real human — imperfect, direct, and honest.';
+}
+
+function buildProfileContext(scenarioId, profile) {
+  if (!profile) return '';
+  if (FIRST_MEETING_SCENARIOS.has(scenarioId)) {
+    return `\nYou don't know this person's name yet — ask for it naturally early in the conversation if the opportunity arises. Do NOT use "[Name]" or any placeholder.`;
+  }
+  if (!profile.firstName) return '';
+  const age = calculateAge(profile.dob);
+  const name = [profile.firstName, profile.lastName].filter(Boolean).join(' ');
+  return `\nThe person you're speaking with is ${name}${age ? `, ${age} years old` : ''}. Use their name naturally where it fits — don't overdo it.`;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -89,21 +103,27 @@ async function fetchGPT(messages, model = 'gpt-4o', maxTokens = 200) {
   return res.json();
 }
 
-async function getOpeningLine(scenarioId) {
+async function getOpeningLine(scenarioId, profile) {
+  const system = getRolePrompt(scenarioId) + buildProfileContext(scenarioId, profile);
   const data = await fetchGPT([
-    { role: 'system', content: getRolePrompt(scenarioId) + ' Keep your opening to 1-2 sentences.' },
-    { role: 'user',   content: 'Start the conversation with a natural opening line. Reply with only that line.' },
-  ]);
+    { role: 'system', content: system },
+    { role: 'user',   content: 'Open the conversation naturally in 1-2 sentences. Sound like a real person — not scripted. End with a direct question so the other person knows what to respond to. Reply with only that opening.' },
+  ], 'gpt-4o', 120);
   return data.choices[0].message.content.trim();
 }
 
-async function processAudioTurn(base64Audio, ext, scenarioId, history) {
-  const systemPrompt = `${getRolePrompt(scenarioId)}
+async function processAudioTurn(base64Audio, ext, scenarioId, history, profile) {
+  const systemPrompt = `${getRolePrompt(scenarioId)}${buildProfileContext(scenarioId, profile)}
 
-You are also secretly analyzing the user's speech delivery. Return a JSON object with exactly these fields:
-- "reply": your natural 1-2 sentence conversational response as the character
-- "userSummary": a 6-10 word summary of what the user said
-- "analysis": { "fillerWords": [array of filler words heard], "pace": "too fast"|"good"|"too slow", "confidence": 1-10, "notes": "one specific observation about their vocal delivery" }
+Stay in character at all times. You are also secretly scoring the user's speech delivery.
+
+Return a JSON object with EXACTLY these fields — no extra fields, no prose outside the JSON:
+- "unclear": true ONLY if the audio is physically inaudible or totally unintelligible. If you can make out any words, set this to false. If true, all other fields are null.
+- "endConversation": true if the user is being offensive/rude to you, OR if they are clearly not engaging (repeating one word, saying random letters, gibberish, one-syllable non-answers two turns in a row). If true, write a short in-character goodbye that fits the situation and set analysis fields to null.
+- "reply": Respond as your character — a real, specific human, not a generic assistant. Use contractions, incomplete thoughts, natural reactions. React to what they ACTUALLY said — don't be generic. If their answer is weak, vague, or off-topic, say so bluntly. If it's good, acknowledge it briefly then push further. Do NOT be encouraging for bad answers. Do NOT always end with a question — sometimes a short reaction is enough and a follow-up comes naturally. Vary your sentence length. (null if unclear)
+- "userTranscript": exact verbatim transcription of what the user said (null if unclear)
+- "userSummary": 6-10 word summary of what the user said (null if unclear)
+- "analysis": { "fillerWords": [array of filler words used], "pace": "too fast"|"good"|"too slow", "confidence": 1-10, "notes": "one blunt, specific observation about their delivery" } (null if unclear)
 
 Return ONLY valid JSON. No extra text.`;
 
@@ -120,7 +140,7 @@ Return ONLY valid JSON. No extra text.`;
       },
     ],
     'gpt-4o-audio-preview',
-    350,
+    450,
   );
 
   const raw = data.choices[0].message.content.trim();
@@ -169,34 +189,6 @@ async function generateStats(scenarioId, analyses) {
 }
 
 // ─── Small animated components ────────────────────────────────────────────────
-
-function TypingDots() {
-  const dots = useRef([0, 1, 2].map(() => new Animated.Value(0))).current;
-  useEffect(() => {
-    const anim = Animated.loop(
-      Animated.stagger(120,
-        dots.map(d =>
-          Animated.sequence([
-            Animated.timing(d, { toValue: -5, duration: 220, useNativeDriver: true, easing: Easing.out(Easing.ease) }),
-            Animated.timing(d, { toValue: 0,  duration: 220, useNativeDriver: true, easing: Easing.in(Easing.ease) }),
-          ])
-        )
-      )
-    );
-    anim.start();
-    return () => anim.stop();
-  }, []);
-  return (
-    <View style={{ flexDirection: 'row', gap: 5, paddingVertical: 6 }}>
-      {dots.map((d, i) => (
-        <Animated.View
-          key={i}
-          style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: '#CBD5E1', transform: [{ translateY: d }] }}
-        />
-      ))}
-    </View>
-  );
-}
 
 function WaveBars({ active }) {
   const bars = useRef([0.3, 0.75, 0.5, 0.9, 0.4].map(v => new Animated.Value(v))).current;
@@ -268,11 +260,12 @@ export default function TrainerScreen() {
   const [analyses, setAnalyses] = useState([]);
   const [stats, setStats] = useState(null);
   const [recStatus, setRecStatus] = useState('idle');
-  const [aiSpeaking, setAiSpeaking] = useState(false);
   const [inputMode, setInputMode] = useState(INPUT_MODES.AUTO_VAD);
   const [countdown, setCountdown] = useState(COUNTDOWN_S);
   const [responseElapsed, setResponseElapsed] = useState(0);
+  const [earlyEnded, setEarlyEnded] = useState(false);
 
+  const insets      = useSafeAreaInsets();
   const recorder    = useAudioRecorder(WAV_RECORDING_OPTIONS);
   const recorderState = useAudioRecorderState(recorder, 150);
   const scrollRef   = useRef(null);
@@ -287,15 +280,17 @@ export default function TrainerScreen() {
 
   // Recording timing refs
   const recordingStartRef  = useRef(null);
-  const aiFinishedAtRef    = useRef(null);
-  const speechStartRef     = useRef(null);
+  const responseShownAtRef = useRef(null); // when AI text appears (for mode 3 timer)
+  const speechStartRef     = useRef(null); // when user taps mic (mode 3)
   const speechDetectedRef  = useRef(false);
   const silenceStartRef    = useRef(null);
   const autoStoppingRef    = useRef(false);
   const maxRecTimerRef     = useRef(null);
   const countdownTimerRef  = useRef(null);
   const responseTimerRef   = useRef(null);
-  const prevAiSpeakingRef  = useRef(false);
+  const autoStartTimerRef  = useRef(null);
+  const typewriterRef      = useRef(null);
+  const profileRef         = useRef(null);
 
   // Mirror refs
   const inputModeRef  = useRef(INPUT_MODES.AUTO_VAD);
@@ -355,32 +350,6 @@ export default function TrainerScreen() {
     return () => ringLoopRef.current?.stop();
   }, [recStatus, inputMode]);
 
-  // Polling fallback for aiSpeaking
-  useEffect(() => {
-    if (!aiSpeaking) return;
-    const iv = setInterval(async () => {
-      const speaking = await Speech.isSpeakingAsync();
-      if (!speaking) {
-        clearInterval(iv);
-        if (!aiFinishedAtRef.current) aiFinishedAtRef.current = Date.now();
-        setAiSpeaking(false);
-      }
-    }, 250);
-    return () => clearInterval(iv);
-  }, [aiSpeaking]);
-
-  // Auto-start recording when AI finishes (modes 1 & 2)
-  useEffect(() => {
-    const was = prevAiSpeakingRef.current;
-    prevAiSpeakingRef.current = aiSpeaking;
-    if (was && !aiSpeaking && phase === 'conversation' && recStatusRef.current === 'idle') {
-      if (inputModeRef.current === INPUT_MODES.AUTO_VAD ||
-          inputModeRef.current === INPUT_MODES.AUTO_COUNTDOWN) {
-        startRecording();
-      }
-    }
-  }, [aiSpeaking]);
-
   // VAD silence detection (mode 1)
   useEffect(() => {
     if (inputModeRef.current !== INPUT_MODES.AUTO_VAD) return;
@@ -424,33 +393,41 @@ export default function TrainerScreen() {
     return () => clearInterval(countdownTimerRef.current);
   }, [recStatus, inputMode]);
 
-  // Response timer (mode 3)
+  // Response timer (mode 3) — counts up while user is idle after seeing AI text
   useEffect(() => {
     clearInterval(responseTimerRef.current);
-    if (inputMode !== INPUT_MODES.PUSH_TO_SPEAK || phase !== 'conversation') {
-      setResponseElapsed(0);
+    if (inputMode !== INPUT_MODES.PUSH_TO_SPEAK || phase !== 'conversation' || recStatus !== 'idle') {
+      if (recStatus !== 'idle') setResponseElapsed(0);
       return;
     }
-    if (!aiSpeaking && recStatus === 'idle') {
-      setResponseElapsed(0);
-      responseTimerRef.current = setInterval(() => setResponseElapsed(p => p + 1), 1000);
-    } else {
-      setResponseElapsed(0);
-    }
+    responseTimerRef.current = setInterval(() => setResponseElapsed(p => p + 1), 1000);
     return () => clearInterval(responseTimerRef.current);
-  }, [aiSpeaking, recStatus, inputMode, phase]);
+  }, [recStatus, inputMode, phase]);
 
   // ── Core functions ────────────────────────────────────────────────────────
 
-  function speakAI(text) {
-    aiFinishedAtRef.current = null;
-    setAiSpeaking(true);
-    Speech.speak(text, {
-      language: 'en-US', rate: 0.92, pitch: 1.0,
-      onDone:    () => { aiFinishedAtRef.current = Date.now(); setAiSpeaking(false); },
-      onStopped: () => { aiFinishedAtRef.current = Date.now(); setAiSpeaking(false); },
-      onError:   () => { aiFinishedAtRef.current = Date.now(); setAiSpeaking(false); },
-    });
+  function scheduleAutoStart() {
+    clearTimeout(autoStartTimerRef.current);
+    autoStartTimerRef.current = setTimeout(() => {
+      if (recStatusRef.current === 'idle') startRecording();
+    }, 1500);
+  }
+
+  function typewriteLastMessage(fullText, onDone) {
+    clearTimeout(typewriterRef.current);
+    let idx = 0;
+    const step = () => {
+      idx++;
+      setMessages(prev => {
+        if (!prev.length) return prev;
+        const copy = [...prev];
+        copy[copy.length - 1] = { ...copy[copy.length - 1], text: fullText.slice(0, idx) };
+        return copy;
+      });
+      if (idx < fullText.length) typewriterRef.current = setTimeout(step, 10);
+      else onDone?.();
+    };
+    step();
   }
 
   async function startConversation(s) {
@@ -459,18 +436,29 @@ export default function TrainerScreen() {
       Alert.alert('Microphone access needed', 'Enable microphone permission in your device settings.');
       return;
     }
+    clearTimeout(autoStartTimerRef.current);
     setScenario(s);
     setPhase('conversation');
     setMessages([]);
     setGptHistory([]);
     setAnalyses([]);
     setRecStatus('idle');
-    aiFinishedAtRef.current = null;
+    setResponseElapsed(0);
+    setEarlyEnded(false);
     try {
-      const opening = await getOpeningLine(s.id);
-      setMessages([{ role: 'ai', text: opening }]);
+      profileRef.current = await getProfile();
+      const opening = await getOpeningLine(s.id, profileRef.current);
+      setMessages([{ role: 'ai', text: '' }]);
       setGptHistory([{ role: 'assistant', content: opening }]);
-      speakAI(opening);
+      setRecStatus('typing');
+      typewriteLastMessage(opening, () => {
+        setRecStatus('idle');
+        responseShownAtRef.current = Date.now();
+        if (inputModeRef.current === INPUT_MODES.AUTO_VAD ||
+            inputModeRef.current === INPUT_MODES.AUTO_COUNTDOWN) {
+          scheduleAutoStart();
+        }
+      });
     } catch (e) {
       Alert.alert('Could not start conversation', e.message);
       setPhase('selecting');
@@ -483,7 +471,7 @@ export default function TrainerScreen() {
     silenceStartRef.current   = null;
     autoStoppingRef.current   = false;
     speechStartRef.current    = null;
-    if (inputModeRef.current === INPUT_MODES.PUSH_TO_SPEAK && aiFinishedAtRef.current) {
+    if (inputModeRef.current === INPUT_MODES.PUSH_TO_SPEAK) {
       speechStartRef.current = Date.now();
     }
     try {
@@ -517,32 +505,55 @@ export default function TrainerScreen() {
       const base64Audio = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
       const ext = uri.split('.').pop()?.toLowerCase() ?? 'wav';
       let responseTimeMs = null;
-      if (aiFinishedAtRef.current) {
-        const at = speechStartRef.current ?? recordingStartRef.current ?? Date.now();
-        responseTimeMs = Math.max(0, at - aiFinishedAtRef.current);
+      if (responseShownAtRef.current && speechStartRef.current) {
+        responseTimeMs = Math.max(0, speechStartRef.current - responseShownAtRef.current);
       }
-      const result = await processAudioTurn(base64Audio, ext, scenario.id, gptHistory);
-      const { reply, userSummary, analysis } = result;
+      const result = await processAudioTurn(base64Audio, ext, scenario.id, gptHistory, profileRef.current);
+
+      if (result.unclear) {
+        setMessages(prev => [...prev, { role: 'info', text: "Couldn't hear that clearly — please speak up and try again." }]);
+        setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+        setRecStatus('idle');
+        if (inputModeRef.current === INPUT_MODES.AUTO_VAD ||
+            inputModeRef.current === INPUT_MODES.AUTO_COUNTDOWN) {
+          scheduleAutoStart();
+        }
+        return;
+      }
+
+      const { reply, userTranscript, userSummary, analysis, endConversation: shouldEnd } = result;
       const enrichedAnalysis = { ...analysis, responseTimeMs };
-      setMessages(prev => [...prev, { role: 'user', text: userSummary }, { role: 'ai', text: reply }]);
+      setMessages(prev => [...prev, { role: 'user', text: userSummary }, { role: 'ai', text: '' }]);
       setGptHistory(prev => [...prev,
-        { role: 'user',      content: userSummary },
+        { role: 'user',      content: userTranscript ?? userSummary },
         { role: 'assistant', content: reply },
       ]);
       setAnalyses(prev => [...prev, enrichedAnalysis]);
+      setResponseElapsed(0);
       setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
-      speakAI(reply);
+      typewriteLastMessage(reply, () => {
+        setRecStatus('idle');
+        if (shouldEnd) {
+          setEarlyEnded(true);
+          return;
+        }
+        responseShownAtRef.current = Date.now();
+        if (inputModeRef.current === INPUT_MODES.AUTO_VAD ||
+            inputModeRef.current === INPUT_MODES.AUTO_COUNTDOWN) {
+          scheduleAutoStart();
+        }
+      });
     } catch (e) {
       Alert.alert('Something went wrong', e.message);
-    } finally {
       setRecStatus('idle');
-      autoStoppingRef.current  = false;
-      aiFinishedAtRef.current  = null;
+    } finally {
+      autoStoppingRef.current = false;
+      speechStartRef.current  = null;
     }
   }
 
   async function endConversation() {
-    Speech.stop();
+    clearTimeout(autoStartTimerRef.current);
     clearTimeout(maxRecTimerRef.current);
     clearInterval(countdownTimerRef.current);
     clearInterval(responseTimerRef.current);
@@ -570,6 +581,7 @@ export default function TrainerScreen() {
     setAnalyses([]);
     setStats(null);
     setRecStatus('idle');
+    setEarlyEnded(false);
   }
 
   // ── Render: selecting ─────────────────────────────────────────────────────
@@ -714,6 +726,8 @@ export default function TrainerScreen() {
   const scenarioColor = scenario ? (SCENARIOS.find(s => s.id === scenario.id)?.color ?? '#4F46E5') : '#4F46E5';
 
   function renderFooter() {
+    if (earlyEnded) return null;
+
     if (recStatus === 'processing') {
       return (
         <View style={S.footerCenter}>
@@ -724,7 +738,6 @@ export default function TrainerScreen() {
     }
 
     if (inputMode === INPUT_MODES.AUTO_VAD) {
-      if (aiSpeaking) return <Text style={S.footerLabel}>Jordan is speaking</Text>;
       if (recStatus === 'recording') {
         return (
           <View style={S.footerCenter}>
@@ -738,11 +751,10 @@ export default function TrainerScreen() {
           </View>
         );
       }
-      return <Text style={S.footerLabel}>Waiting...</Text>;
+      return <Text style={S.footerLabel}>{recStatus === 'processing' ? 'Processing…' : 'Get ready…'}</Text>;
     }
 
     if (inputMode === INPUT_MODES.AUTO_COUNTDOWN) {
-      if (aiSpeaking) return <Text style={S.footerLabel}>Jordan is speaking</Text>;
       if (recStatus === 'recording') {
         const urgent = countdown <= 5;
         return (
@@ -757,16 +769,13 @@ export default function TrainerScreen() {
           </View>
         );
       }
-      return <Text style={S.footerLabel}>Waiting...</Text>;
+      return <Text style={S.footerLabel}>{recStatus === 'processing' ? 'Processing…' : 'Get ready…'}</Text>;
     }
 
     // Mode 3: push to speak
-    const slow = responseElapsed > 6;
+    const isTyping = recStatus === 'typing';
     return (
       <View style={S.footerCenter}>
-        {recStatus === 'idle' && !aiSpeaking && responseElapsed > 0 && (
-          <Text style={[S.timerNum, slow && S.timerSlow]}>{responseElapsed}s</Text>
-        )}
         <View style={S.micWrap}>
           {recStatus === 'recording' && (
             <Animated.View style={[S.micRing, {
@@ -775,23 +784,18 @@ export default function TrainerScreen() {
             }]} />
           )}
           <TouchableOpacity
-            style={[S.micBtn, recStatus === 'recording' && S.micBtnActive, aiSpeaking && S.micBtnDisabled]}
-            onPress={recStatus === 'idle' ? startRecording : stopRecording}
-            disabled={aiSpeaking}
-            activeOpacity={0.85}
+            style={[S.micBtn, recStatus === 'recording' && S.micBtnActive, isTyping && S.micBtnDisabled]}
+            onPress={recStatus === 'idle' ? startRecording : recStatus === 'recording' ? stopRecording : null}
+            activeOpacity={isTyping ? 1 : 0.85}
+            disabled={isTyping}
           >
             <Ionicons
               name={recStatus === 'recording' ? 'stop' : 'mic'}
               size={26}
-              color={aiSpeaking ? '#A5B4FC' : '#fff'}
+              color="#fff"
             />
           </TouchableOpacity>
         </View>
-        <Text style={S.footerLabel}>
-          {aiSpeaking ? 'Jordan is speaking'
-            : recStatus === 'recording' ? 'Tap to stop'
-            : 'Tap to speak'}
-        </Text>
       </View>
     );
   }
@@ -814,39 +818,43 @@ export default function TrainerScreen() {
         contentContainerStyle={S.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {messages.map((msg, i) => (
-          <FadeSlide key={i} fromRight={msg.role === 'user'} delay={0}>
-            <View style={[S.row, msg.role === 'user' && S.rowUser]}>
-              {msg.role === 'ai' && (
-                <View style={[S.avatar, { backgroundColor: scenarioColor }]}>
-                  <Text style={S.avatarText}>J</Text>
+        {messages.map((msg, i) => {
+          if (msg.role === 'info') {
+            return (
+              <FadeSlide key={i} fromRight={false} delay={0}>
+                <View style={S.infoPill}>
+                  <Ionicons name="alert-circle-outline" size={14} color="#94A3B8" />
+                  <Text style={S.infoPillText}>{msg.text}</Text>
                 </View>
-              )}
-              <View style={msg.role === 'ai' ? S.bubbleAI : S.bubbleUser}>
-                {msg.role === 'user' && <Text style={S.youLabel}>YOU</Text>}
-                <Text style={[S.bubbleText, msg.role === 'user' && S.bubbleTextUser]}>
-                  {msg.text}
-                </Text>
+              </FadeSlide>
+            );
+          }
+          return (
+            <FadeSlide key={i} fromRight={msg.role === 'user'} delay={0}>
+              <View style={[S.row, msg.role === 'user' && S.rowUser]}>
+                {msg.role === 'ai' && (
+                  <View style={[S.avatar, { backgroundColor: scenarioColor }]}>
+                    <Text style={S.avatarText}>J</Text>
+                  </View>
+                )}
+                <View style={msg.role === 'ai' ? S.bubbleAI : S.bubbleUser}>
+                  {msg.role === 'user' && <Text style={S.youLabel}>YOU</Text>}
+                  <Text style={[S.bubbleText, msg.role === 'user' && S.bubbleTextUser]}>
+                    {msg.text}
+                  </Text>
+                </View>
               </View>
-            </View>
-          </FadeSlide>
-        ))}
+            </FadeSlide>
+          );
+        })}
 
-        {aiSpeaking && (
-          <View style={S.row}>
-            <View style={[S.avatar, { backgroundColor: scenarioColor }]}>
-              <Text style={S.avatarText}>J</Text>
-            </View>
-            <View style={S.bubbleAI}>
-              <TypingDots />
-            </View>
-          </View>
-        )}
       </ScrollView>
 
-      <View style={S.footer}>
-        {renderFooter()}
-      </View>
+      {!earlyEnded && (
+        <View style={[S.footer, { bottom: 90 }]}>
+          {renderFooter()}
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -857,7 +865,7 @@ const S = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8F9FF' },
 
   // Selecting
-  selectContent: { padding: 20, paddingBottom: 40 },
+  selectContent: { padding: 20, paddingBottom: 110 },
   selectTitle: { fontSize: 26, fontWeight: '800', color: '#0F172A', marginBottom: 4 },
   selectSub:   { fontSize: 14, color: '#64748B', marginBottom: 28 },
   scenarioCard: {
@@ -888,7 +896,7 @@ const S = StyleSheet.create({
   endBtnText:  { color: '#EF4444', fontWeight: '600', fontSize: 13 },
 
   scroll:        { flex: 1 },
-  scrollContent: { padding: 16, paddingBottom: 12, gap: 10 },
+  scrollContent: { padding: 16, paddingBottom: 180, gap: 10 },
 
   row:     { flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
   rowUser: { justifyContent: 'flex-end' },
@@ -910,10 +918,17 @@ const S = StyleSheet.create({
   bubbleTextUser: { color: '#fff' },
   youLabel: { fontSize: 9, fontWeight: '700', color: 'rgba(255,255,255,0.55)', letterSpacing: 0.8, marginBottom: 3 },
 
+  infoPill: {
+    alignSelf: 'center', flexDirection: 'row', alignItems: 'center',
+    gap: 6, backgroundColor: '#F1F5F9', borderRadius: 20,
+    paddingHorizontal: 14, paddingVertical: 7,
+  },
+  infoPillText: { fontSize: 13, color: '#94A3B8', fontWeight: '500' },
+
   // Footer
   footer: {
-    backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#F1F5F9',
-    paddingVertical: 20, paddingHorizontal: 20, alignItems: 'center',
+    position: 'absolute', left: 0, right: 0,
+    paddingVertical: 12, paddingHorizontal: 20, alignItems: 'center',
   },
   footerCenter: { alignItems: 'center', gap: 8 },
   footerLabel:  { fontSize: 13, color: '#94A3B8', fontWeight: '500' },
@@ -930,7 +945,7 @@ const S = StyleSheet.create({
   // Mode 3
   timerNum:  { fontSize: 38, fontWeight: '800', color: '#4F46E5', lineHeight: 44 },
   timerSlow: { color: '#EF4444' },
-  micWrap:   { position: 'relative', alignItems: 'center', justifyContent: 'center', width: 80, height: 80 },
+  micWrap:   { position: 'relative', alignItems: 'center', justifyContent: 'center', width: 70, height: 70 },
   micRing: {
     position: 'absolute',
     width: 72, height: 72, borderRadius: 36,
@@ -950,7 +965,7 @@ const S = StyleSheet.create({
   analyzingText: { fontSize: 15, color: '#64748B', fontWeight: '500' },
 
   // Stats
-  statsContent: { padding: 20, paddingBottom: 48, alignItems: 'center' },
+  statsContent: { padding: 20, paddingBottom: 110, alignItems: 'center' },
   statsHeading: { fontSize: 24, fontWeight: '800', color: '#0F172A', marginBottom: 4 },
   statsScenario:{ fontSize: 13, color: '#94A3B8', marginBottom: 28 },
   gradeCircle: {

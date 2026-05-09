@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { getSettings, saveSettings, INPUT_MODES } from '../lib/settings';
+import { getProfile, calculateAge } from '../lib/profile';
 
 const MODES = [
   {
@@ -31,10 +32,12 @@ const MODES = [
 
 export default function SettingsScreen() {
   const [selectedMode, setSelectedMode] = useState(INPUT_MODES.AUTO_VAD);
+  const [profile, setProfile] = useState(null);
 
   useFocusEffect(
     useCallback(() => {
       getSettings().then(s => setSelectedMode(s.inputMode));
+      getProfile().then(setProfile);
     }, [])
   );
 
@@ -50,7 +53,30 @@ export default function SettingsScreen() {
 
   return (
     <ScrollView style={S.container} contentContainerStyle={S.content} showsVerticalScrollIndicator={false}>
-      <Text style={S.sectionLabel}>INPUT MODE</Text>
+
+      {profile?.firstName ? (
+        <>
+          <Text style={S.sectionLabel}>PROFILE</Text>
+          <View style={S.profileCard}>
+            <View style={S.profileAvatar}>
+              <Text style={S.profileInitial}>{profile.firstName[0].toUpperCase()}</Text>
+            </View>
+            <View>
+              <Text style={S.profileName}>
+                {[profile.firstName, profile.lastName].filter(Boolean).join(' ')}
+              </Text>
+              {profile.dob ? (
+                <Text style={S.profileSub}>
+                  {profile.dob}{calculateAge(profile.dob) ? ` · ${calculateAge(profile.dob)} years old` : ''}
+                </Text>
+              ) : null}
+            </View>
+          </View>
+          <Text style={[S.sectionLabel, { marginTop: 28 }]}>INPUT MODE</Text>
+        </>
+      ) : (
+        <Text style={S.sectionLabel}>INPUT MODE</Text>
+      )}
 
       {MODES.map(m => {
         const selected = selectedMode === m.id;
@@ -93,7 +119,7 @@ export default function SettingsScreen() {
 
 const S = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8F9FF' },
-  content:   { padding: 20, paddingBottom: 48 },
+  content:   { padding: 20, paddingBottom: 110 },
   sectionLabel: { fontSize: 11, fontWeight: '700', color: '#94A3B8', letterSpacing: 1.2, marginBottom: 10 },
 
   card: {
@@ -128,6 +154,20 @@ const S = StyleSheet.create({
   },
   radioSelected: { borderColor: '#4F46E5' },
   radioDot:      { width: 9, height: 9, borderRadius: 5, backgroundColor: '#4F46E5' },
+
+  profileCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    backgroundColor: '#fff', borderRadius: 16, padding: 14, marginBottom: 10,
+    shadowColor: '#0F172A', shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05, shadowRadius: 6, elevation: 1,
+  },
+  profileAvatar: {
+    width: 44, height: 44, borderRadius: 22,
+    backgroundColor: '#4F46E5', alignItems: 'center', justifyContent: 'center',
+  },
+  profileInitial: { color: '#fff', fontWeight: '700', fontSize: 18 },
+  profileName:    { fontSize: 15, fontWeight: '700', color: '#0F172A' },
+  profileSub:     { fontSize: 12, color: '#94A3B8', marginTop: 2 },
 
   signOutBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',

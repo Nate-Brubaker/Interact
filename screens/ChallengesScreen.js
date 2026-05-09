@@ -164,7 +164,7 @@ export default function ChallengesScreen() {
 const S = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8F9FF' },
   center:    { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  listContent: { padding: 16, paddingBottom: 32 },
+  listContent: { padding: 16, paddingBottom: 110 },
 
   statsCard: {
     backgroundColor: '#4F46E5',
