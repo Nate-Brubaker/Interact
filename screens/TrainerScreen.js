@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  ActivityIndicator, Animated, Alert, SafeAreaView, Easing,
+  ActivityIndicator, Animated, Alert, SafeAreaView, Easing, Modal, PanResponder,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
@@ -43,7 +43,6 @@ const OPENAI_KEY = process.env.EXPO_PUBLIC_OPENAI_API_KEY?.trim();
 
 const SCENARIOS = [
   { id: 'job_interview', label: 'Job Interview',    desc: 'Answer tough interview questions',        icon: 'briefcase-outline',  color: '#6366F1' },
-  { id: 'first_date',    label: 'First Date',       desc: 'Keep a natural, flowing conversation',    icon: 'heart-outline',      color: '#EC4899' },
   { id: 'networking',    label: 'Networking Event', desc: 'Meet professionals and make connections', icon: 'people-outline',     color: '#10B981' },
   { id: 'small_talk',    label: 'Small Talk',       desc: 'Chat comfortably with a stranger',        icon: 'chatbubble-outline', color: '#F59E0B' },
   { id: 'new_friends',   label: 'Making Friends',   desc: 'Meet someone new at a social gathering',  icon: 'person-add-outline', color: '#3B82F6' },
@@ -123,7 +122,7 @@ Return a JSON object with EXACTLY these fields — no extra fields, no prose out
 - "reply": Respond as your character — a real, specific human, not a generic assistant. Use contractions, incomplete thoughts, natural reactions. React to what they ACTUALLY said — don't be generic. If their answer is weak, vague, or off-topic, say so bluntly. If it's good, acknowledge it briefly then push further. Do NOT be encouraging for bad answers. Do NOT always end with a question — sometimes a short reaction is enough and a follow-up comes naturally. Vary your sentence length. (null if unclear)
 - "userTranscript": exact verbatim transcription of what the user said (null if unclear)
 - "userSummary": 6-10 word summary of what the user said (null if unclear)
-- "analysis": { "fillerWords": [array of filler words used], "pace": "too fast"|"good"|"too slow", "confidence": 1-10, "notes": "one blunt, specific observation about their delivery" } (null if unclear)
+- "analysis": { "fillerWords": [array of filler words used], "pace": "too fast"|"good"|"too slow", "confidence": 1-10, "confidenceNote": "one sentence — why this confidence score, quote specific words or tone", "clarity": 1-10, "clarityNote": "one sentence — why this clarity score, e.g. mumbling, trailing off, clear articulation", "energy": 1-10, "energyNote": "one sentence — why this energy score, reference their vocal tone/pace/engagement", "specificity": 1-10, "specificityNote": "one sentence — why this specificity score, quote or reference what was vague or specific", "activeListening": 1-10, "activeListeningNote": "one sentence — did they respond to what was actually asked or give a generic answer, be specific" } (null if unclear)
 
 Return ONLY valid JSON. No extra text.`;
 
@@ -140,7 +139,7 @@ Return ONLY valid JSON. No extra text.`;
       },
     ],
     'gpt-4o-audio-preview',
-    450,
+    600,
   );
 
   const raw = data.choices[0].message.content.trim();
@@ -169,6 +168,13 @@ async function generateStats(scenarioId, analyses) {
           `- "topFillers": top 2-3 filler words as a string (e.g. "um, like")\n` +
           `- "pace": overall pace summary string\n` +
           `- "avgConfidence": number 1-10 rounded to 1 decimal\n` +
+          `- "avgClarity": number 1-10 rounded to 1 decimal — how clear and easy to understand\n` +
+          `- "avgEnergy": number 1-10 rounded to 1 decimal — vocal engagement, not monotone\n` +
+          `- "avgSpecificity": number 1-10 rounded to 1 decimal — concrete examples vs vague answers\n` +
+          `- "avgActiveListening": number 1-10 rounded to 1 decimal — responded to what was actually said vs generic answers\n` +
+          `- "firstImpression": number 1-10 — strength of the user's very first response only\n` +
+          `- "firstImpressionNote": one sentence — specific reasoning for the firstImpression score, reference what they actually said in turn 1\n` +
+          `- "statBreakdowns": object with keys "confidence","clarity","energy","specificity","activeListening","firstImpression". Each value is an array of 1-3 NOTABLE moments only — skip average/unremarkable turns. Each item: { "moment": "specific description of what happened and why it affected the score", "quality": "good"|"poor", "suggestion": "a better alternative phrase they could have used — ONLY include this field for poor word-choice moments, omit otherwise" }\n` +
           `- "avgResponseTime": average response time in seconds (1 decimal), or null if no data\n` +
           `- "responsivenessNote": one sentence about how quickly they responded\n` +
           `- "strongestMoment": string\n` +
@@ -178,7 +184,7 @@ async function generateStats(scenarioId, analyses) {
       },
     ],
     'gpt-4o',
-    600,
+    1400,
   );
   const raw = data.choices[0].message.content.trim();
   try {
@@ -264,6 +270,7 @@ export default function TrainerScreen() {
   const [countdown, setCountdown] = useState(COUNTDOWN_S);
   const [responseElapsed, setResponseElapsed] = useState(0);
   const [earlyEnded, setEarlyEnded] = useState(false);
+  const [selectedStat, setSelectedStat] = useState(null);
 
   const insets      = useSafeAreaInsets();
   const recorder    = useAudioRecorder(WAV_RECORDING_OPTIONS);
@@ -274,9 +281,25 @@ export default function TrainerScreen() {
   const cardAnims    = useRef(SCENARIOS.map(() => new Animated.Value(0))).current;
   const headerAnim   = useRef(new Animated.Value(0)).current;
   const gradeAnim    = useRef(new Animated.Value(0)).current;
-  const statsAnims   = useRef(Array.from({ length: 6 }, () => new Animated.Value(0))).current;
+  const statsAnims   = useRef(Array.from({ length: 9 }, () => new Animated.Value(0))).current;
   const ringAnim     = useRef(new Animated.Value(0)).current;
   const ringLoopRef  = useRef(null);
+  const modalY          = useRef(new Animated.Value(600)).current;
+  const dismissRef      = useRef(null);
+  const closeModalRef   = useRef(null);
+  const modalPan        = useRef(PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder:  () => true,
+    onPanResponderMove: (_, g) => { modalY.setValue(g.dy); },
+    onPanResponderRelease: (_, g) => {
+      if (g.dy > 80 || g.vy > 0.5) {
+        Animated.timing(modalY, { toValue: 800, duration: 220, useNativeDriver: true })
+          .start(() => dismissRef.current?.());
+      } else {
+        Animated.spring(modalY, { toValue: 0, tension: 65, friction: 11, useNativeDriver: true }).start();
+      }
+    },
+  })).current;
 
   // Recording timing refs
   const recordingStartRef  = useRef(null);
@@ -522,7 +545,7 @@ export default function TrainerScreen() {
       }
 
       const { reply, userTranscript, userSummary, analysis, endConversation: shouldEnd } = result;
-      const enrichedAnalysis = { ...analysis, responseTimeMs };
+      const enrichedAnalysis = { ...analysis, responseTimeMs, userSummary, userTranscript };
       setMessages(prev => [...prev, { role: 'user', text: userSummary }, { role: 'ai', text: '' }]);
       setGptHistory(prev => [...prev,
         { role: 'user',      content: userTranscript ?? userSummary },
@@ -655,18 +678,42 @@ export default function TrainerScreen() {
         </Animated.View>
         <Text style={S.gradeDesc}>{stats.gradeDesc}</Text>
 
-        <Animated.View style={[S.statsGrid, sa(0)]}>
+        {[
+          [
+            { key: 'confidence',      value: stats.avgConfidence ?? '—',      label: 'Confidence' },
+            { key: 'clarity',         value: stats.avgClarity ?? '—',         label: 'Clarity' },
+            { key: 'energy',          value: stats.avgEnergy ?? '—',          label: 'Energy' },
+          ],
+          [
+            { key: 'specificity',     value: stats.avgSpecificity ?? '—',     label: 'Specificity' },
+            { key: 'activeListening', value: stats.avgActiveListening ?? '—', label: 'Active Listening' },
+            { key: 'firstImpression', value: stats.firstImpression ?? '—',    label: 'First Impression' },
+          ],
+        ].map((row, ri) => (
+          <Animated.View key={ri} style={[S.statsGrid, sa(ri)]}>
+            {row.map(item => (
+              <TouchableOpacity key={item.key} style={S.statBox} onPress={() => setSelectedStat(item.key)} activeOpacity={0.7}>
+                <Text style={S.statValue}>{item.value}</Text>
+                <Text style={S.statLabel}>{item.label}</Text>
+                <Text style={S.statSub}>out of 10</Text>
+                <View style={S.statTapHint}>
+                  <Ionicons name="information-circle-outline" size={12} color="#CBD5E1" />
+                </View>
+              </TouchableOpacity>
+            ))}
+          </Animated.View>
+        ))}
+
+        <Animated.View style={[S.statsGrid, sa(2)]}>
           {[
             { value: stats.totalFillers ?? 0, label: 'Filler Words', sub: stats.topFillers ? `"${stats.topFillers}"` : null },
-            { value: stats.avgConfidence ?? '—', label: 'Confidence', sub: 'out of 10' },
             {
               value: stats.pace?.toLowerCase().includes('fast') ? 'Fast'
                 : stats.pace?.toLowerCase().includes('slow') ? 'Slow' : 'Good',
-              label: 'Pace',
-              sub: null,
+              label: 'Pace', sub: null,
             },
           ].map((item, i) => (
-            <View key={i} style={S.statBox}>
+            <View key={i} style={[S.statBox, { flex: 1 }]}>
               <Text style={S.statValue}>{item.value}</Text>
               <Text style={S.statLabel}>{item.label}</Text>
               {item.sub ? <Text style={S.statSub}>{item.sub}</Text> : null}
@@ -674,8 +721,63 @@ export default function TrainerScreen() {
           ))}
         </Animated.View>
 
+        <Modal
+          visible={selectedStat !== null}
+          transparent
+          animationType="none"
+          onRequestClose={() => { closeModalRef.current?.(); }}
+          onShow={() => {
+            dismissRef.current    = () => { setSelectedStat(null); modalY.setValue(600); };
+            closeModalRef.current = () => {
+              Animated.timing(modalY, { toValue: 600, duration: 280, useNativeDriver: true })
+                .start(() => dismissRef.current?.());
+            };
+            modalY.setValue(600);
+            Animated.spring(modalY, { toValue: 0, tension: 65, friction: 11, useNativeDriver: true }).start();
+          }}
+        >
+          <View style={S.modalOverlay}>
+            <Animated.View style={[
+              StyleSheet.absoluteFill,
+              { backgroundColor: '#000', opacity: modalY.interpolate({ inputRange: [0, 600], outputRange: [0.45, 0], extrapolate: 'clamp' }) },
+            ]} pointerEvents="none" />
+            <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => closeModalRef.current?.()} />
+            <Animated.View style={[S.modalSheet, { transform: [{ translateY: modalY.interpolate({ inputRange: [0, 800], outputRange: [0, 800], extrapolateLeft: 'clamp' }) }] }]}>
+              <View style={S.modalHandleArea} {...modalPan.panHandlers}>
+                <View style={S.modalHandle} />
+              </View>
+              <Text style={S.modalTitle}>
+                {{ confidence: 'Confidence', clarity: 'Clarity', energy: 'Energy', specificity: 'Specificity', activeListening: 'Active Listening', firstImpression: 'First Impression' }[selectedStat]}
+              </Text>
+              <Text style={S.modalSub}>Notable moments from your conversation</Text>
+              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 20 }}>
+                {(() => {
+                  const moments = stats?.statBreakdowns?.[selectedStat] ?? [];
+                  if (!moments.length) return <Text style={S.turnNotes}>No notable moments recorded.</Text>;
+                  return moments.map((m, i) => (
+                    <View key={i} style={[S.turnRow, { borderLeftColor: m.quality === 'good' ? '#22C55E' : '#EF4444' }]}>
+                      <View style={[S.scoreBadge, { backgroundColor: m.quality === 'good' ? '#F0FDF4' : '#FEF2F2', alignSelf: 'flex-start', marginBottom: 6 }]}>
+                        <Text style={[S.scoreText, { color: m.quality === 'good' ? '#22C55E' : '#EF4444' }]}>
+                          {m.quality === 'good' ? 'Strong' : 'Weak'}
+                        </Text>
+                      </View>
+                      <Text style={S.turnTranscript}>{m.moment}</Text>
+                      {m.suggestion ? (
+                        <View style={S.suggestionBox}>
+                          <Text style={S.suggestionLabel}>TRY INSTEAD</Text>
+                          <Text style={S.suggestionText}>"{m.suggestion}"</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                  ));
+                })()}
+              </ScrollView>
+            </Animated.View>
+          </View>
+        </Modal>
+
         {stats.avgResponseTime != null && (
-          <Animated.View style={[S.responseCard, sa(1)]}>
+          <Animated.View style={[S.responseCard, sa(3)]}>
             <Text style={S.calloutLabel}>RESPONSE SPEED</Text>
             <Text style={[S.responseTime, { color: stats.avgResponseTime > 6 ? '#EF4444' : '#22C55E' }]}>
               {stats.avgResponseTime}s avg
@@ -685,14 +787,14 @@ export default function TrainerScreen() {
         )}
 
         {stats.strongestMoment ? (
-          <Animated.View style={[S.calloutCard, sa(2)]}>
+          <Animated.View style={[S.calloutCard, sa(4)]}>
             <Text style={S.calloutLabel}>STRONGEST MOMENT</Text>
             <Text style={S.calloutText}>{stats.strongestMoment}</Text>
           </Animated.View>
         ) : null}
 
         {stats.improvements?.length > 0 && (
-          <Animated.View style={[S.improvementsCard, sa(3)]}>
+          <Animated.View style={[S.improvementsCard, sa(5)]}>
             <Text style={S.calloutLabel}>WORK ON</Text>
             {stats.improvements.map((item, i) => (
               <View key={i} style={S.improvRow}>
@@ -704,12 +806,12 @@ export default function TrainerScreen() {
         )}
 
         {stats.overallAssessment ? (
-          <Animated.View style={sa(4)}>
+          <Animated.View style={sa(6)}>
             <Text style={S.overallText}>{stats.overallAssessment}</Text>
           </Animated.View>
         ) : null}
 
-        <Animated.View style={[S.statsButtons, sa(5)]}>
+        <Animated.View style={[S.statsButtons, sa(7)]}>
           <TouchableOpacity style={S.btnSecondary} onPress={() => startConversation(scenario)}>
             <Text style={S.btnSecondaryText}>Try Again</Text>
           </TouchableOpacity>
@@ -985,6 +1087,30 @@ const S = StyleSheet.create({
   statValue: { fontSize: 22, fontWeight: '800', color: '#0F172A', marginBottom: 4 },
   statLabel: { fontSize: 11, fontWeight: '600', color: '#64748B', textAlign: 'center' },
   statSub:   { fontSize: 10, color: '#94A3B8', textAlign: 'center', marginTop: 2 },
+  statTapHint: { position: 'absolute', top: 8, right: 8 },
+
+  modalOverlay: { flex: 1, justifyContent: 'flex-end' },
+  modalSheet: {
+    backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    paddingHorizontal: 20, paddingBottom: 40, maxHeight: '75%',
+  },
+  modalHandleArea: { alignItems: 'center', paddingVertical: 12 },
+  modalHandle:     { width: 36, height: 4, borderRadius: 2, backgroundColor: '#E2E8F0' },
+  modalTitle: { fontSize: 20, fontWeight: '800', color: '#0F172A', marginBottom: 4 },
+  modalSub:   { fontSize: 13, color: '#94A3B8', marginBottom: 20 },
+
+  turnRow: {
+    borderLeftWidth: 3, borderLeftColor: '#EEF2FF',
+    paddingLeft: 12, paddingVertical: 10, marginBottom: 16,
+  },
+  scoreBadge:    { borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 },
+  scoreText:     { fontSize: 11, fontWeight: '700' },
+  turnTranscript:{ fontSize: 14, color: '#0F172A', lineHeight: 20, marginBottom: 6 },
+  turnNotes:     { fontSize: 12, color: '#64748B', fontStyle: 'italic', lineHeight: 17 },
+
+  suggestionBox:   { backgroundColor: '#F0FDF4', borderRadius: 10, padding: 10, marginTop: 4 },
+  suggestionLabel: { fontSize: 9, fontWeight: '700', color: '#22C55E', letterSpacing: 1, marginBottom: 4 },
+  suggestionText:  { fontSize: 13, color: '#166534', lineHeight: 19, fontStyle: 'italic' },
 
   responseCard: {
     backgroundColor: '#F0FDF4', borderRadius: 14, padding: 16,
