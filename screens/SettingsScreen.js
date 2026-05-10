@@ -1,49 +1,51 @@
-import { useState, useCallback } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert } from 'react-native';
+import { useState, useCallback, useMemo } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert, Switch } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
-import { getSettings, saveSettings, INPUT_MODES } from '../lib/settings';
+import { getSettings, saveSettings } from '../lib/settings';
 import { getProfile, calculateAge } from '../lib/profile';
+import { useTheme } from '../lib/theme';
 
-const MODES = [
-  {
-    id: INPUT_MODES.AUTO_VAD,
-    title: 'Auto — Silence Detection',
-    desc: 'Recording starts when the AI finishes and stops automatically when you go quiet.',
-    icon: 'mic-outline',
-    badge: 'Default',
-  },
-  {
-    id: INPUT_MODES.AUTO_COUNTDOWN,
-    title: 'Auto-start + Countdown',
-    desc: 'Recording starts automatically. A 20-second countdown shows. Tap Submit when done.',
-    icon: 'timer-outline',
-    badge: null,
-  },
-  {
-    id: INPUT_MODES.PUSH_TO_SPEAK,
-    title: 'Push to Speak',
-    desc: 'Tap the mic to speak. A timer shows how long you took to respond.',
-    icon: 'hand-left-outline',
-    badge: null,
-  },
-];
+function SectionLabel({ label, top, C }) {
+  return <Text style={[{ fontSize: 11, fontWeight: '700', color: C.textMuted, letterSpacing: 1.2, marginBottom: 10 }, top && { marginTop: top }]}>{label}</Text>;
+}
+
+function ToggleRow({ label, desc, value, onToggle, C }) {
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', padding: 14, gap: 12 }}>
+      <View style={{ flex: 1 }}>
+        <Text style={{ fontSize: 14, fontWeight: '600', color: C.text, marginBottom: 2 }}>{label}</Text>
+        {desc ? <Text style={{ fontSize: 12, color: C.textMuted, lineHeight: 17 }}>{desc}</Text> : null}
+      </View>
+      <Switch
+        value={value}
+        onValueChange={onToggle}
+        trackColor={{ false: '#E2E8F0', true: C.accentLight }}
+        thumbColor='#ffffff'
+      />
+    </View>
+  );
+}
 
 export default function SettingsScreen() {
-  const [selectedMode, setSelectedMode] = useState(INPUT_MODES.AUTO_VAD);
-  const [profile, setProfile] = useState(null);
+  const { dark, setDark, colors: C } = useTheme();
+  const [settings, setSettings] = useState(null);
+  const [profile,  setProfile]  = useState(null);
+
+  const S = useMemo(() => makeStyles(C), [C]);
 
   useFocusEffect(
     useCallback(() => {
-      getSettings().then(s => setSelectedMode(s.inputMode));
+      getSettings().then(setSettings);
       getProfile().then(setProfile);
     }, [])
   );
 
-  async function selectMode(id) {
-    setSelectedMode(id);
-    await saveSettings({ inputMode: id });
+  async function update(key, value) {
+    const next = { ...settings, [key]: value };
+    setSettings(next);
+    await saveSettings({ [key]: value });
   }
 
   async function signOut() {
@@ -51,20 +53,20 @@ export default function SettingsScreen() {
     if (error) Alert.alert('Sign out failed', error.message);
   }
 
+  if (!settings) return null;
+
   return (
     <ScrollView style={S.container} contentContainerStyle={S.content} showsVerticalScrollIndicator={false}>
 
       {profile?.firstName ? (
         <>
-          <Text style={S.sectionLabel}>PROFILE</Text>
+          <SectionLabel label="PROFILE" C={C} />
           <View style={S.profileCard}>
             <View style={S.profileAvatar}>
               <Text style={S.profileInitial}>{profile.firstName[0].toUpperCase()}</Text>
             </View>
             <View>
-              <Text style={S.profileName}>
-                {[profile.firstName, profile.lastName].filter(Boolean).join(' ')}
-              </Text>
+              <Text style={S.profileName}>{[profile.firstName, profile.lastName].filter(Boolean).join(' ')}</Text>
               {profile.dob ? (
                 <Text style={S.profileSub}>
                   {profile.dob}{calculateAge(profile.dob) ? ` · ${calculateAge(profile.dob)} years old` : ''}
@@ -72,102 +74,70 @@ export default function SettingsScreen() {
               ) : null}
             </View>
           </View>
-          <Text style={[S.sectionLabel, { marginTop: 28 }]}>INPUT MODE</Text>
         </>
-      ) : (
-        <Text style={S.sectionLabel}>INPUT MODE</Text>
-      )}
+      ) : null}
 
-      {MODES.map(m => {
-        const selected = selectedMode === m.id;
-        return (
-          <TouchableOpacity
-            key={m.id}
-            style={[S.card, selected && S.cardSelected]}
-            onPress={() => selectMode(m.id)}
-            activeOpacity={0.75}
-          >
-            <View style={[S.iconBox, selected && S.iconBoxSelected]}>
-              <Ionicons name={m.icon} size={18} color={selected ? '#4F46E5' : '#94A3B8'} />
-            </View>
-            <View style={S.cardBody}>
-              <View style={S.titleRow}>
-                <Text style={[S.cardTitle, selected && S.cardTitleSelected]}>{m.title}</Text>
-                {m.badge ? (
-                  <View style={S.badge}>
-                    <Text style={S.badgeText}>{m.badge}</Text>
-                  </View>
-                ) : null}
-              </View>
-              <Text style={S.cardDesc}>{m.desc}</Text>
-            </View>
-            <View style={[S.radio, selected && S.radioSelected]}>
-              {selected && <View style={S.radioDot} />}
-            </View>
-          </TouchableOpacity>
-        );
-      })}
+      <SectionLabel label="APPEARANCE" top={profile?.firstName ? 28 : 0} C={C} />
+      <View style={S.group}>
+        <ToggleRow
+          label="Dark Mode"
+          desc="Switch to a dark color scheme."
+          value={dark}
+          onToggle={setDark}
+          C={C}
+        />
+      </View>
 
-      <Text style={[S.sectionLabel, { marginTop: 32 }]}>ACCOUNT</Text>
+      <SectionLabel label="NOTIFICATIONS" top={28} C={C} />
+      <View style={S.group}>
+        <ToggleRow
+          label="Practice Reminders"
+          desc="Daily nudge to keep your skills sharp."
+          value={settings.practiceReminders}
+          onToggle={v => update('practiceReminders', v)}
+          C={C}
+        />
+      </View>
+
+      <SectionLabel label="APP" top={28} C={C} />
+      <View style={S.group}>
+        <ToggleRow
+          label="Haptic Feedback"
+          desc="Vibrate when recording starts and stops."
+          value={settings.hapticFeedback}
+          onToggle={v => update('hapticFeedback', v)}
+          C={C}
+        />
+      </View>
+
+      <SectionLabel label="ACCOUNT" top={28} C={C} />
       <TouchableOpacity style={S.signOutBtn} onPress={signOut} activeOpacity={0.8}>
         <Ionicons name="log-out-outline" size={18} color="#EF4444" />
         <Text style={S.signOutText}>Sign Out</Text>
       </TouchableOpacity>
+
     </ScrollView>
   );
 }
 
-const S = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8F9FF' },
+const makeStyles = (C) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: C.bg },
   content:   { padding: 20, paddingBottom: 110 },
-  sectionLabel: { fontSize: 11, fontWeight: '700', color: '#94A3B8', letterSpacing: 1.2, marginBottom: 10 },
-
-  card: {
-    flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff',
-    borderRadius: 16, padding: 14, marginBottom: 10,
-    borderWidth: 2, borderColor: 'transparent',
-    shadowColor: '#0F172A', shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05, shadowRadius: 6, elevation: 1,
-    gap: 12,
-  },
-  cardSelected: { borderColor: '#4F46E5' },
-
-  iconBox: {
-    width: 38, height: 38, borderRadius: 10,
-    backgroundColor: '#F1F5F9', alignItems: 'center', justifyContent: 'center',
-  },
-  iconBoxSelected: { backgroundColor: '#EEF2FF' },
-
-  cardBody:  { flex: 1 },
-  titleRow:  { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 3 },
-  cardTitle: { fontSize: 14, fontWeight: '600', color: '#334155' },
-  cardTitleSelected: { color: '#4F46E5' },
-  cardDesc:  { fontSize: 12, color: '#94A3B8', lineHeight: 17 },
-
-  badge:     { backgroundColor: '#EEF2FF', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
-  badgeText: { fontSize: 9, fontWeight: '700', color: '#4F46E5', letterSpacing: 0.5 },
-
-  radio: {
-    width: 20, height: 20, borderRadius: 10,
-    borderWidth: 2, borderColor: '#E2E8F0',
-    alignItems: 'center', justifyContent: 'center',
-  },
-  radioSelected: { borderColor: '#4F46E5' },
-  radioDot:      { width: 9, height: 9, borderRadius: 5, backgroundColor: '#4F46E5' },
 
   profileCard: {
     flexDirection: 'row', alignItems: 'center', gap: 14,
-    backgroundColor: '#fff', borderRadius: 16, padding: 14, marginBottom: 10,
-    shadowColor: '#0F172A', shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05, shadowRadius: 6, elevation: 1,
+    backgroundColor: C.card, borderRadius: 16, padding: 14, marginBottom: 10,
+    shadowColor: C.shadow, shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 6, elevation: 1,
   },
-  profileAvatar: {
-    width: 44, height: 44, borderRadius: 22,
-    backgroundColor: '#4F46E5', alignItems: 'center', justifyContent: 'center',
-  },
+  profileAvatar:  { width: 44, height: 44, borderRadius: 22, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center' },
   profileInitial: { color: '#fff', fontWeight: '700', fontSize: 18 },
-  profileName:    { fontSize: 15, fontWeight: '700', color: '#0F172A' },
-  profileSub:     { fontSize: 12, color: '#94A3B8', marginTop: 2 },
+  profileName:    { fontSize: 15, fontWeight: '700', color: C.text },
+  profileSub:     { fontSize: 12, color: C.textMuted, marginTop: 2 },
+
+  group: {
+    backgroundColor: C.card, borderRadius: 14, overflow: 'hidden',
+    shadowColor: C.shadow, shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 4, elevation: 1,
+  },
 
   signOutBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',

@@ -2,6 +2,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTheme } from '../lib/theme';
 import ChallengesScreen from '../screens/ChallengesScreen';
 import TrainerScreen from '../screens/TrainerScreen';
 import SettingsScreen from '../screens/SettingsScreen';
@@ -16,17 +17,15 @@ const ICONS = {
 
 function FloatingTabBar({ state, descriptors, navigation }) {
   const insets = useSafeAreaInsets();
-
-  // Match the device's corner radius. Modern phones (home indicator present)
-  // have ~44px corner radius; the bar sits 16px inset so inner radius ≈ 28px.
-  const radius  = insets.bottom > 0 ? 28 : 14;
-  const bottom  = 19;
+  const { dark, colors: C } = useTheme();
+  const radius = insets.bottom > 0 ? 28 : 14;
+  const bottom = 19;
 
   return (
-    <View style={[S.bar, { borderRadius: radius, bottom }]}>
+    <View style={[S.bar, { borderRadius: radius, bottom, backgroundColor: C.card }]}>
       {state.routes.map((route, i) => {
         const focused = state.index === i;
-        const color   = focused ? '#4F46E5' : '#94A3B8';
+        const color   = focused ? (dark ? '#ffffff' : C.accent) : C.textSec;
         return (
           <TouchableOpacity
             key={route.key}
@@ -52,7 +51,7 @@ const S = StyleSheet.create({
     position: 'absolute',
     left: 19, right: 19,
     flexDirection: 'row',
-    backgroundColor: '#fff',
+    backgroundColor: '#fff', // overridden inline via useTheme
     height: 62,
     shadowColor: '#0F172A',
     shadowOffset: { width: 0, height: 8 },
@@ -65,10 +64,17 @@ const S = StyleSheet.create({
 });
 
 export default function TabNavigator() {
+  const { colors: C } = useTheme();
   return (
     <Tab.Navigator
       tabBar={props => <FloatingTabBar {...props} />}
-      screenOptions={{ headerShown: true }}
+      screenOptions={{
+        headerShown: true,
+        headerStyle: { backgroundColor: C.card },
+        headerTintColor: C.text,
+        headerTitleStyle: { fontWeight: '700' },
+        headerShadowVisible: false,
+      }}
     >
       <Tab.Screen name="Challenges" component={ChallengesScreen} />
       <Tab.Screen name="Trainer"    component={TrainerScreen} />

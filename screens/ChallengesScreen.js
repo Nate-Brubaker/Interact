@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   View, Text, SectionList, TouchableOpacity,
   StyleSheet, ActivityIndicator, Animated,
@@ -6,6 +6,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import { CHALLENGES } from '../data/challenges';
+import { useTheme } from '../lib/theme';
 
 const DIFFICULTY = {
   Easy:   { color: '#22C55E', bg: '#F0FDF4' },
@@ -20,6 +21,9 @@ const SECTIONS = [
 ];
 
 export default function ChallengesScreen() {
+  const { colors: C } = useTheme();
+  const S = useMemo(() => makeStyles(C), [C]);
+
   const [completedIds, setCompletedIds] = useState(new Set());
   const [loading, setLoading] = useState(true);
   const [completing, setCompleting] = useState(null);
@@ -39,8 +43,8 @@ export default function ChallengesScreen() {
     setLoading(false);
   }
 
-  const totalXP   = CHALLENGES.filter(c => completedIds.has(c.id)).reduce((s, c) => s + c.xp, 0);
-  const pct       = CHALLENGES.length > 0 ? completedIds.size / CHALLENGES.length : 0;
+  const totalXP = CHALLENGES.filter(c => completedIds.has(c.id)).reduce((s, c) => s + c.xp, 0);
+  const pct     = CHALLENGES.length > 0 ? completedIds.size / CHALLENGES.length : 0;
 
   useEffect(() => {
     if (!loading) {
@@ -81,9 +85,7 @@ export default function ChallengesScreen() {
         <View style={[S.cardAccent, { backgroundColor: color }]} />
         <View style={S.cardBody}>
           <View style={S.cardTop}>
-            <Text style={[S.cardTitle, done && S.cardTitleDone]} numberOfLines={1}>
-              {item.title}
-            </Text>
+            <Text style={[S.cardTitle, done && S.cardTitleDone]} numberOfLines={1}>{item.title}</Text>
             <View style={[S.xpBadge, { backgroundColor: bg }]}>
               <Text style={[S.xpText, { color }]}>+{item.xp} XP</Text>
             </View>
@@ -114,7 +116,7 @@ export default function ChallengesScreen() {
   if (loading) {
     return (
       <View style={S.center}>
-        <ActivityIndicator size="large" color="#4F46E5" />
+        <ActivityIndicator size="large" color={C.accent} />
       </View>
     );
   }
@@ -138,7 +140,7 @@ export default function ChallengesScreen() {
                   <Text style={S.statsXPLabel}>XP earned</Text>
                 </View>
                 <View style={S.statsDivider} />
-                <View style={S.statsRight}>
+                <View>
                   <Text style={S.statsCount}>
                     {completedIds.size}
                     <Text style={S.statsTotal}>/{CHALLENGES.length}</Text>
@@ -161,52 +163,40 @@ export default function ChallengesScreen() {
   );
 }
 
-const S = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8F9FF' },
-  center:    { flex: 1, alignItems: 'center', justifyContent: 'center' },
+const makeStyles = (C) => StyleSheet.create({
+  container:   { flex: 1, backgroundColor: C.bg },
+  center:      { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg },
   listContent: { padding: 16, paddingBottom: 110 },
 
-  statsCard: {
-    backgroundColor: '#4F46E5',
-    borderRadius: 20,
-    padding: 20,
-    marginBottom: 24,
-  },
-  statsRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 18 },
-  statsXP:  { fontSize: 30, fontWeight: '800', color: '#fff' },
+  statsCard: { backgroundColor: C.accent, borderRadius: 20, padding: 20, marginBottom: 24 },
+  statsRow:     { flexDirection: 'row', alignItems: 'center', marginBottom: 18 },
+  statsXP:      { fontSize: 30, fontWeight: '800', color: '#fff' },
   statsXPLabel: { fontSize: 12, color: 'rgba(255,255,255,0.65)', marginTop: 2 },
   statsDivider: { width: 1, height: 36, backgroundColor: 'rgba(255,255,255,0.2)', marginHorizontal: 20 },
-  statsRight: {},
-  statsCount: { fontSize: 30, fontWeight: '800', color: '#fff' },
-  statsTotal: { fontSize: 18, fontWeight: '400', color: 'rgba(255,255,255,0.55)' },
-  progressTrack: {
-    height: 6, backgroundColor: 'rgba(255,255,255,0.2)',
-    borderRadius: 3, overflow: 'hidden', marginBottom: 8,
-  },
-  progressFill: { height: '100%', backgroundColor: '#fff', borderRadius: 3 },
-  progressPct:  { fontSize: 12, color: 'rgba(255,255,255,0.65)' },
+  statsCount:   { fontSize: 30, fontWeight: '800', color: '#fff' },
+  statsTotal:   { fontSize: 18, fontWeight: '400', color: 'rgba(255,255,255,0.55)' },
+  progressTrack: { height: 6, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 3, overflow: 'hidden', marginBottom: 8 },
+  progressFill:  { height: '100%', backgroundColor: '#fff', borderRadius: 3 },
+  progressPct:   { fontSize: 12, color: 'rgba(255,255,255,0.65)' },
 
-  sectionHeader: {
-    flexDirection: 'row', alignItems: 'center',
-    marginBottom: 10, marginTop: 4, paddingHorizontal: 2,
-  },
-  sectionDot:   { width: 7, height: 7, borderRadius: 4, marginRight: 8 },
-  sectionTitle: { fontSize: 12, fontWeight: '700', letterSpacing: 0.8, flex: 1 },
-  sectionCount: { fontSize: 12, color: '#94A3B8', fontWeight: '500' },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 10, marginTop: 4, paddingHorizontal: 2 },
+  sectionDot:    { width: 7, height: 7, borderRadius: 4, marginRight: 8 },
+  sectionTitle:  { fontSize: 12, fontWeight: '700', letterSpacing: 0.8, flex: 1 },
+  sectionCount:  { fontSize: 12, color: C.textMuted, fontWeight: '500' },
 
   card: {
-    flexDirection: 'row', backgroundColor: '#fff',
+    flexDirection: 'row', backgroundColor: C.card,
     borderRadius: 14, marginBottom: 8, overflow: 'hidden',
-    shadowColor: '#0F172A', shadowOffset: { width: 0, height: 1 },
+    shadowColor: C.shadow, shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05, shadowRadius: 6, elevation: 2,
   },
-  cardDone:  { opacity: 0.5 },
-  cardAccent: { width: 3 },
-  cardBody:  { flex: 1, padding: 14 },
-  cardTop:   { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5, gap: 8 },
-  cardTitle: { fontSize: 15, fontWeight: '700', color: '#0F172A', flex: 1 },
-  cardTitleDone: { textDecorationLine: 'line-through', color: '#94A3B8' },
-  cardDesc:  { fontSize: 13, color: '#64748B', lineHeight: 19, marginBottom: 12 },
+  cardDone:      { opacity: 0.5 },
+  cardAccent:    { width: 3 },
+  cardBody:      { flex: 1, padding: 14 },
+  cardTop:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5, gap: 8 },
+  cardTitle:     { fontSize: 15, fontWeight: '700', color: C.text, flex: 1 },
+  cardTitleDone: { textDecorationLine: 'line-through', color: C.textMuted },
+  cardDesc:      { fontSize: 13, color: C.textSec, lineHeight: 19, marginBottom: 12 },
 
   xpBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20 },
   xpText:  { fontSize: 11, fontWeight: '700' },
@@ -214,9 +204,6 @@ const S = StyleSheet.create({
   doneRow:   { flexDirection: 'row', alignItems: 'center', gap: 5 },
   doneLabel: { fontSize: 13, fontWeight: '600' },
 
-  completeBtn: {
-    alignSelf: 'flex-start', paddingHorizontal: 14, paddingVertical: 7,
-    borderRadius: 8, minWidth: 44, alignItems: 'center',
-  },
+  completeBtn:     { alignSelf: 'flex-start', paddingHorizontal: 14, paddingVertical: 7, borderRadius: 8, minWidth: 44, alignItems: 'center' },
   completeBtnText: { color: '#fff', fontWeight: '600', fontSize: 13 },
 });

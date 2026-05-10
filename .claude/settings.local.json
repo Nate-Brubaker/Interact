@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(node -e \"const api = require\\('./node_modules/expo-audio/build/index.js'\\); console.log\\(Object.keys\\(api\\).filter\\(k => k.toLowerCase\\(\\).includes\\('record'\\) || k.toLowerCase\\(\\).includes\\('audio'\\)\\).join\\('\\\\n'\\)\\)\")"
+      "Bash(node -e \"const api = require\\('./node_modules/expo-audio/build/index.js'\\); console.log\\(Object.keys\\(api\\).filter\\(k => k.toLowerCase\\(\\).includes\\('record'\\) || k.toLowerCase\\(\\).includes\\('audio'\\)\\).join\\('\\\\n'\\)\\)\")",
+      "Bash(npx expo *)"
     ]
   }
 }

@@ -4,6 +4,7 @@ import {
   StyleSheet, Alert, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { supabase } from '../lib/supabase';
+import { LIGHT } from '../lib/theme';
 
 export default function LoginScreen({ navigation }) {
   const [email, setEmail] = useState('');
@@ -70,7 +71,7 @@ const styles = StyleSheet.create({
   logo: {
     fontSize: 40,
     fontWeight: 'bold',
-    color: '#4F46E5',
+    color: LIGHT.accent,
     marginBottom: 8,
   },
   tagline: {
@@ -92,7 +93,7 @@ const styles = StyleSheet.create({
   button: {
     width: '100%',
     height: 52,
-    backgroundColor: '#4F46E5',
+    backgroundColor: LIGHT.accent,
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
@@ -101,5 +102,5 @@ const styles = StyleSheet.create({
   },
   buttonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
   link: { color: '#6B7280', fontSize: 14 },
-  linkBold: { color: '#4F46E5', fontWeight: '600' },
+  linkBold: { color: LIGHT.accent, fontWeight: '600' },
 });
