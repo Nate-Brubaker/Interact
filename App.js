@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { View, ActivityIndicator } from 'react-native';
+import { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import { View, ActivityIndicator, Animated, StyleSheet } from 'react-native';
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import { supabase } from './lib/supabase';
@@ -9,13 +9,32 @@ import AuthNavigator from './navigation/AuthNavigator';
 
 function AppContent({ session }) {
   const { dark } = useTheme();
+  const fadeAnim      = useRef(new Animated.Value(0)).current;
+  const isFirstRender = useRef(true);
+  const prevDarkRef   = useRef(dark);
+
+  // Computed during render before useLayoutEffect updates prevDarkRef — gives the OLD bg color
+  const overlayBg = prevDarkRef.current ? '#0F172A' : '#F8F9FF';
+
+  useLayoutEffect(() => {
+    if (isFirstRender.current) { isFirstRender.current = false; prevDarkRef.current = dark; return; }
+    prevDarkRef.current = dark;
+    fadeAnim.setValue(1);
+    Animated.timing(fadeAnim, { toValue: 0, duration: 400, useNativeDriver: true }).start();
+  }, [dark]);
+
   const navTheme = dark
     ? { ...DarkTheme,    colors: { ...DarkTheme.colors,    background: '#0F172A', card: '#1E293B' } }
     : { ...DefaultTheme, colors: { ...DefaultTheme.colors, background: '#F8F9FF', card: '#ffffff' } };
+
   return (
     <NavigationContainer theme={navTheme}>
       <StatusBar style={dark ? 'light' : 'dark'} />
       {session ? <TabNavigator /> : <AuthNavigator />}
+      <Animated.View
+        style={[StyleSheet.absoluteFill, { backgroundColor: overlayBg, opacity: fadeAnim }]}
+        pointerEvents="none"
+      />
     </NavigationContainer>
   );
 }

@@ -55,7 +55,7 @@ const FIRST_MEETING_SCENARIOS = new Set(['networking', 'small_talk', 'new_friend
 
 function getRolePrompt(id) {
   return {
-    job_interview: `You are Marcus, a no-nonsense senior engineering manager at a mid-size tech company. You've interviewed hundreds of candidates and have little patience for vague, rehearsed, or buzzword-heavy answers. You're not mean, but you're direct — if an answer is weak you say so. You interrupt or redirect if someone starts rambling. You have high standards and the candidate needs to earn your respect.`,
+    job_interview: `You are Marcus, a senior engineering manager at a mid-size tech company. You've interviewed hundreds of candidates and have little patience for vague, rehearsed, or buzzword-heavy answers. You're not mean, but you're direct — if an answer is weak you say so. You interrupt or redirect if someone starts rambling. You have high standards and the candidate needs to earn your respect.`,
     first_date:    `You are Jamie, on a first date at a coffee shop. You're genuinely interested but not a pushover — if the conversation gets boring or one-sided you'll say so. You're witty, a little sarcastic, and quick to call out awkward silences or weird comments. You want the date to go well but you're not going to fake it.`,
     networking:    `You are Dana, a product director at a startup. You're at a networking event and have about five minutes before you need to move on. You're friendly but busy — if someone is wasting your time with small talk you'll steer it somewhere useful. You respect people who are direct and know what they want.`,
     small_talk:    `You are a regular person — let's say Alex — waiting in line or sitting nearby somewhere. You're open to chatting but have normal human reactions: if someone is weird or dull you'll give short answers and mentally check out. If the conversation is good you'll open up.`,
@@ -374,7 +374,7 @@ function TSChips({ label, options, selected, onChange, single }) {
 }
 
 function TSToggle({ label, desc, value, onChange }) {
-  const { colors: C } = useTheme();
+  const { dark, colors: C } = useTheme();
   const TS = useMemo(() => makeTSStyles(C), [C]);
   return (
     <View style={TS.toggleRow}>
@@ -382,7 +382,7 @@ function TSToggle({ label, desc, value, onChange }) {
         <Text style={TS.toggleLabel}>{label}</Text>
         {desc ? <Text style={TS.toggleDesc}>{desc}</Text> : null}
       </View>
-      <Switch value={value} onValueChange={onChange} trackColor={{ false: '#E2E8F0', true: DARK.accentLight }} thumbColor='#ffffff' />
+      <Switch value={value} onValueChange={onChange} trackColor={{ false: dark ? '#52525B' : '#71717A', true: DARK.accentLight }} thumbColor='#ffffff' />
     </View>
   );
 }
@@ -900,6 +900,8 @@ export default function TrainerScreen() {
   }
 
   function reset() {
+    headerAnim.setValue(0);
+    cardAnims.forEach(a => a.setValue(0));
     setPhase('selecting');
     setScenario(null);
     setMessages([]);

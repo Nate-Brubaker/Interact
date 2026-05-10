@@ -12,6 +12,7 @@ function SectionLabel({ label, top, C }) {
 }
 
 function ToggleRow({ label, desc, value, onToggle, C }) {
+  const { dark } = useTheme();
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', padding: 14, gap: 12 }}>
       <View style={{ flex: 1 }}>
@@ -21,7 +22,7 @@ function ToggleRow({ label, desc, value, onToggle, C }) {
       <Switch
         value={value}
         onValueChange={onToggle}
-        trackColor={{ false: '#E2E8F0', true: DARK.accentLight }}
+        trackColor={{ false: dark ? '#52525B' : '#71717A', true: DARK.accentLight }}
         thumbColor='#ffffff'
       />
     </View>
