@@ -13,7 +13,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { getSettings, saveSettings, INPUT_MODES, INTENSITIES, LANGUAGES, SESSION_LENGTHS, FOCUS_AREAS } from '../lib/settings';
-import { useTheme } from '../lib/theme';
+import { useTheme, DARK } from '../lib/theme';
 import { getProfile, calculateAge } from '../lib/profile';
 
 const WAV_RECORDING_OPTIONS = {
@@ -382,7 +382,7 @@ function TSToggle({ label, desc, value, onChange }) {
         <Text style={TS.toggleLabel}>{label}</Text>
         {desc ? <Text style={TS.toggleDesc}>{desc}</Text> : null}
       </View>
-      <Switch value={value} onValueChange={onChange} trackColor={{ false: '#E2E8F0', true: C.accentLight }} thumbColor='#ffffff' />
+      <Switch value={value} onValueChange={onChange} trackColor={{ false: '#E2E8F0', true: DARK.accentLight }} thumbColor='#ffffff' />
     </View>
   );
 }
@@ -1435,7 +1435,7 @@ const makeStyles = (C) => StyleSheet.create({
   suggestionLabel: { fontSize: 9, fontWeight: '700', color: '#22C55E', letterSpacing: 1, marginBottom: 4 },
   suggestionText:  { fontSize: 13, color: '#166534', lineHeight: 19, fontStyle: 'italic' },
 
-  responseCard: { backgroundColor: '#F0FDF4', borderRadius: 14, padding: 16, width: '100%', marginBottom: 10, alignItems: 'center' },
+  responseCard: { backgroundColor: C.card, borderRadius: 14, padding: 16, width: '100%', marginBottom: 10, alignItems: 'center', borderWidth: 1, borderColor: C.border },
   responseTime: { fontSize: 28, fontWeight: '800', marginBottom: 4 },
 
   calloutCard:      { backgroundColor: C.accentBg, borderRadius: 14, padding: 16, width: '100%', marginBottom: 10 },

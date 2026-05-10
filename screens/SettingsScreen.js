@@ -5,7 +5,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { getSettings, saveSettings } from '../lib/settings';
 import { getProfile, calculateAge } from '../lib/profile';
-import { useTheme } from '../lib/theme';
+import { useTheme, DARK } from '../lib/theme';
 
 function SectionLabel({ label, top, C }) {
   return <Text style={[{ fontSize: 11, fontWeight: '700', color: C.textMuted, letterSpacing: 1.2, marginBottom: 10 }, top && { marginTop: top }]}>{label}</Text>;
@@ -21,7 +21,7 @@ function ToggleRow({ label, desc, value, onToggle, C }) {
       <Switch
         value={value}
         onValueChange={onToggle}
-        trackColor={{ false: '#E2E8F0', true: C.accentLight }}
+        trackColor={{ false: '#E2E8F0', true: DARK.accentLight }}
         thumbColor='#ffffff'
       />
     </View>
@@ -29,7 +29,7 @@ function ToggleRow({ label, desc, value, onToggle, C }) {
 }
 
 export default function SettingsScreen() {
-  const { dark, setDark, colors: C } = useTheme();
+  const { dark, setDark, useSystem, setUseSystem, colors: C } = useTheme();
   const [settings, setSettings] = useState(null);
   const [profile,  setProfile]  = useState(null);
 
@@ -80,12 +80,42 @@ export default function SettingsScreen() {
       <SectionLabel label="APPEARANCE" top={profile?.firstName ? 28 : 0} C={C} />
       <View style={S.group}>
         <ToggleRow
-          label="Dark Mode"
-          desc="Switch to a dark color scheme."
-          value={dark}
-          onToggle={setDark}
+          label="Use System Theme"
+          desc="Automatically match your device's appearance."
+          value={useSystem}
+          onToggle={setUseSystem}
           C={C}
         />
+        {!useSystem && (
+          <>
+            <View style={{ height: 1, backgroundColor: C.divider, marginHorizontal: 14 }} />
+            <View style={{ padding: 14, gap: 8 }}>
+              <Text style={{ fontSize: 14, fontWeight: '600', color: C.text, marginBottom: 2 }}>Theme</Text>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                {[{ label: 'Light', icon: 'sunny-outline', value: false }, { label: 'Dark', icon: 'moon-outline', value: true }].map(opt => {
+                  const active = dark === opt.value;
+                  return (
+                    <TouchableOpacity
+                      key={opt.label}
+                      onPress={() => setDark(opt.value)}
+                      activeOpacity={0.7}
+                      style={{
+                        flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+                        gap: 6, paddingVertical: 10, borderRadius: 10,
+                        backgroundColor: active ? C.accent : C.bgAlt,
+                        borderWidth: 1.5,
+                        borderColor: active ? C.accent : C.border,
+                      }}
+                    >
+                      <Ionicons name={opt.icon} size={15} color={active ? '#fff' : C.textSec} />
+                      <Text style={{ fontSize: 13, fontWeight: '600', color: active ? '#fff' : C.textSec }}>{opt.label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+          </>
+        )}
       </View>
 
       <SectionLabel label="NOTIFICATIONS" top={28} C={C} />
@@ -141,7 +171,7 @@ const makeStyles = (C) => StyleSheet.create({
 
   signOutBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 8, backgroundColor: '#FEF2F2', borderRadius: 14, padding: 14,
+    gap: 8, backgroundColor: C.dangerBg, borderRadius: 14, padding: 14,
   },
   signOutText: { color: '#EF4444', fontWeight: '600', fontSize: 15 },
 });
