@@ -10,6 +10,7 @@ import AuthNavigator from './navigation/AuthNavigator';
 function AppContent({ session }) {
   const { dark } = useTheme();
   const fadeAnim      = useRef(new Animated.Value(0)).current;
+  const animRef       = useRef(null);
   const isFirstRender = useRef(true);
   const prevDarkRef   = useRef(dark);
 
@@ -19,8 +20,10 @@ function AppContent({ session }) {
   useLayoutEffect(() => {
     if (isFirstRender.current) { isFirstRender.current = false; prevDarkRef.current = dark; return; }
     prevDarkRef.current = dark;
+    animRef.current?.stop();
     fadeAnim.setValue(1);
-    Animated.timing(fadeAnim, { toValue: 0, duration: 400, useNativeDriver: true }).start();
+    animRef.current = Animated.timing(fadeAnim, { toValue: 0, duration: 300, useNativeDriver: false });
+    animRef.current.start();
   }, [dark]);
 
   const navTheme = dark

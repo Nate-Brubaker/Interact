@@ -15,6 +15,7 @@ import * as Haptics from 'expo-haptics';
 import { getSettings, saveSettings, INPUT_MODES, INTENSITIES, LANGUAGES, SESSION_LENGTHS, FOCUS_AREAS } from '../lib/settings';
 import { useTheme, DARK } from '../lib/theme';
 import { getProfile, calculateAge } from '../lib/profile';
+import { saveSession, getSessions } from '../lib/sessions';
 
 const WAV_RECORDING_OPTIONS = {
   extension: '.wav',
@@ -33,11 +34,12 @@ const WAV_RECORDING_OPTIONS = {
   web: { mimeType: 'audio/wav', bitsPerSecond: 256000 },
 };
 
-const SPEECH_DB    = -35;
-const SILENCE_DB   = -42;
-const SILENCE_MS   = 1800;
-const MAX_RECORD_MS = 60000;
-const COUNTDOWN_S  = 20;
+const SPEECH_DB      = -35;
+const SILENCE_DB     = -42;
+const SILENCE_MS     = 1500;
+const MIN_SPEECH_MS  = 500;  // must speak for this long before silence detection activates
+const MAX_RECORD_MS  = 60000;
+const COUNTDOWN_S    = 20;
 
 const OPENAI_KEY = process.env.EXPO_PUBLIC_OPENAI_API_KEY?.trim();
 
@@ -105,6 +107,15 @@ function buildBehaviorContext(settings) {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function formatDate(iso) {
+  const d = new Date(iso);
+  const days = Math.floor((Date.now() - d) / 86400000);
+  if (days === 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  if (days < 7)  return `${days}d ago`;
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
 
 function extractJSON(raw) {
   let s = raw
@@ -390,8 +401,8 @@ function TSToggle({ label, desc, value, onChange }) {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function TrainerScreen() {
-  const { colors: C } = useTheme();
-  const S = useMemo(() => makeStyles(C), [C]);
+  const { dark, colors: C } = useTheme();
+  const S = useMemo(() => makeStyles(C, dark), [C, dark]);
 
   const [phase, setPhase] = useState('selecting');
   const [scenario, setScenario] = useState(null);
@@ -408,6 +419,9 @@ export default function TrainerScreen() {
   const [fillerCount, setFillerCount] = useState(0);
   const [trainSettingsOpen, setTrainSettingsOpen] = useState(false);
   const [trainSettings, setTrainSettings] = useState(null);
+  const [recentSessions, setRecentSessions] = useState([]);
+  const [sessionDetailOpen, setSessionDetailOpen] = useState(false);
+  const [sessionDetailData, setSessionDetailData] = useState(null);
 
   const insets      = useSafeAreaInsets();
   const recorder    = useAudioRecorder(WAV_RECORDING_OPTIONS);
@@ -438,6 +452,41 @@ export default function TrainerScreen() {
     },
   })).current;
 
+  // Separate refs for session detail sheet (so stat breakdown modal can open on top without conflict)
+  const sessionModalY    = useRef(new Animated.Value(600)).current;
+  const sessionDismissRef = useRef(null);
+  const sessionCloseRef   = useRef(null);
+  const sessionModalPan   = useRef(PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder:  () => true,
+    onPanResponderMove: (_, g) => { if (g.dy > 0) sessionModalY.setValue(g.dy); },
+    onPanResponderRelease: (_, g) => {
+      if (g.dy > 80 || g.vy > 0.5) {
+        Animated.timing(sessionModalY, { toValue: 800, duration: 220, useNativeDriver: true })
+          .start(() => sessionDismissRef.current?.());
+      } else {
+        Animated.spring(sessionModalY, { toValue: 0, tension: 65, friction: 11, useNativeDriver: true }).start();
+      }
+    },
+  })).current;
+  const breakdownStatsRef   = useRef(null);
+  const breakdownModalY     = useRef(new Animated.Value(600)).current;
+  const breakdownDismissRef = useRef(null);
+  const breakdownCloseRef   = useRef(null);
+  const breakdownModalPan   = useRef(PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder:  () => true,
+    onPanResponderMove: (_, g) => { if (g.dy > 0) breakdownModalY.setValue(g.dy); },
+    onPanResponderRelease: (_, g) => {
+      if (g.dy > 80 || g.vy > 0.5) {
+        Animated.timing(breakdownModalY, { toValue: 800, duration: 220, useNativeDriver: true })
+          .start(() => breakdownDismissRef.current?.());
+      } else {
+        Animated.spring(breakdownModalY, { toValue: 0, tension: 65, friction: 11, useNativeDriver: true }).start();
+      }
+    },
+  })).current;
+
   // Recording timing refs
   const recordingStartRef  = useRef(null);
   const responseShownAtRef = useRef(null); // when AI text appears (for mode 3 timer)
@@ -461,11 +510,34 @@ export default function TrainerScreen() {
   useEffect(() => { inputModeRef.current = inputMode; }, [inputMode]);
   useEffect(() => { recStatusRef.current = recStatus; }, [recStatus]);
 
+  // Drive the stat breakdown sheet open/close via useEffect so it works
+  // reliably on Android (onShow is not dependable for transparent modals)
+  useEffect(() => {
+    if (selectedStat !== null) {
+      breakdownDismissRef.current = () => { setSelectedStat(null); breakdownModalY.setValue(600); };
+      breakdownCloseRef.current   = () => {
+        Animated.timing(breakdownModalY, { toValue: 600, duration: 280, useNativeDriver: true })
+          .start(() => breakdownDismissRef.current?.());
+      };
+      breakdownModalY.setValue(600);
+      Animated.spring(breakdownModalY, { toValue: 0, tension: 65, friction: 11, useNativeDriver: true }).start();
+    }
+  }, [selectedStat]);
+
   useFocusEffect(
     useCallback(() => {
       getSettings().then(s => setInputMode(s.inputMode));
     }, [])
   );
+
+  // Load recent sessions whenever selecting screen is shown
+  useEffect(() => {
+    if (phase === 'selecting') {
+      getSessions()
+        .then(data => { console.log('sessions loaded:', data.length); setRecentSessions(data); })
+        .catch(e => console.error('getSessions:', e));
+    }
+  }, [phase]);
 
   // Scenario card entrance
   useEffect(() => {
@@ -525,6 +597,10 @@ export default function TrainerScreen() {
     }
     if (speechDetectedRef.current) {
       if (db < SILENCE_DB) {
+        // Don't trigger silence stop until user has spoken for at least MIN_SPEECH_MS —
+        // prevents a brief noise from immediately stopping the recording
+        const spokenMs = speechStartRef.current ? Date.now() - speechStartRef.current : 0;
+        if (spokenMs < MIN_SPEECH_MS) return;
         if (!silenceStartRef.current) silenceStartRef.current = Date.now();
         else if (Date.now() - silenceStartRef.current > SILENCE_MS && !autoStoppingRef.current) {
           autoStoppingRef.current = true;
@@ -566,6 +642,243 @@ export default function TrainerScreen() {
     responseTimerRef.current = setInterval(() => setResponseElapsed(p => p + 1), 1000);
     return () => clearInterval(responseTimerRef.current);
   }, [recStatus, inputMode, phase]);
+
+  // ── Stat breakdown sheet (shared between live stats and session history) ────
+
+  function renderStatBreakdownModal() {
+    return (
+      <Modal
+        visible={selectedStat !== null}
+        transparent
+        animationType="none"
+        onRequestClose={() => breakdownCloseRef.current?.()}
+      >
+        <View style={S.modalOverlay}>
+          <Animated.View style={[
+            StyleSheet.absoluteFill,
+            { backgroundColor: '#000', opacity: breakdownModalY.interpolate({ inputRange: [0, 600], outputRange: [0.45, 0], extrapolate: 'clamp' }) },
+          ]} pointerEvents="none" />
+          <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => breakdownCloseRef.current?.()} />
+          <Animated.View style={[S.modalSheet, { transform: [{ translateY: breakdownModalY.interpolate({ inputRange: [0, 800], outputRange: [0, 800], extrapolateLeft: 'clamp' }) }] }]}>
+            <View style={S.modalHandleArea} {...breakdownModalPan.panHandlers}>
+              <View style={S.modalHandle} />
+            </View>
+            <Text style={S.modalTitle}>
+              {{ confidence: 'Confidence', clarity: 'Clarity', energy: 'Energy', specificity: 'Specificity', activeListening: 'Active Listening', firstImpression: 'First Impression' }[selectedStat]}
+            </Text>
+            <Text style={S.modalSub}>Notable moments from your conversation</Text>
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 20 }}>
+              {(() => {
+                const moments = breakdownStatsRef.current?.statBreakdowns?.[selectedStat] ?? [];
+                if (!moments.length) return <Text style={S.turnNotes}>No notable moments recorded.</Text>;
+                return moments.map((m, i) => (
+                  <View key={i} style={[S.turnRow, { borderLeftColor: m.quality === 'good' ? '#22C55E' : '#EF4444' }]}>
+                    <View style={[S.scoreBadge, { backgroundColor: m.quality === 'good' ? (dark ? 'rgba(34,197,94,0.15)' : '#F0FDF4') : (dark ? 'rgba(239,68,68,0.15)' : '#FEF2F2'), alignSelf: 'flex-start', marginBottom: 6 }]}>
+                      <Text style={[S.scoreText, { color: m.quality === 'good' ? '#22C55E' : '#EF4444' }]}>
+                        {m.quality === 'good' ? 'Strong' : 'Weak'}
+                      </Text>
+                    </View>
+                    <Text style={S.turnTranscript}>{m.moment}</Text>
+                    {m.suggestion ? (
+                      <View style={S.suggestionBox}>
+                        <Text style={S.suggestionLabel}>TRY INSTEAD</Text>
+                        <Text style={S.suggestionText}>"{m.suggestion}"</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                ));
+              })()}
+            </ScrollView>
+          </Animated.View>
+        </View>
+      </Modal>
+    );
+  }
+
+  // ── Session detail sheet ──────────────────────────────────────────────────
+
+  function renderSessionDetailModal() {
+    if (!sessionDetailData) return null;
+    const sesh = sessionDetailData;
+    const sd   = sesh.stats_json ?? {};
+    const sc   = SCENARIOS.find(s => s.id === sesh.scenario_id)
+      ?? { id: sesh.scenario_id, label: sesh.scenario_label, color: '#94A3B8', icon: 'chatbubble-outline' };
+    const grade = sesh.grade ?? sd.grade;
+    const gc    = grade?.startsWith('A') ? '#22C55E'
+      : grade?.startsWith('B') ? C.accent
+      : grade?.startsWith('C') ? '#F97316' : '#EF4444';
+
+    return (
+      <Modal
+        visible={sessionDetailOpen}
+        transparent
+        animationType="none"
+        onRequestClose={() => sessionCloseRef.current?.()}
+        onShow={() => {
+          sessionDismissRef.current = () => { setSessionDetailOpen(false); setSelectedStat(null); sessionModalY.setValue(600); };
+          sessionCloseRef.current   = () => {
+            Animated.timing(sessionModalY, { toValue: 600, duration: 280, useNativeDriver: true })
+              .start(() => sessionDismissRef.current?.());
+          };
+          sessionModalY.setValue(600);
+          Animated.spring(sessionModalY, { toValue: 0, tension: 65, friction: 11, useNativeDriver: true }).start();
+        }}
+      >
+        <View style={{ flex: 1, justifyContent: 'flex-end' }}>
+          <Animated.View
+            style={[StyleSheet.absoluteFill, { backgroundColor: '#000', opacity: sessionModalY.interpolate({ inputRange: [0, 600], outputRange: [0.4, 0], extrapolate: 'clamp' }) }]}
+            pointerEvents="none"
+          />
+          <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => sessionCloseRef.current?.()} />
+          <Animated.View style={[S.tsSheet, { transform: [{ translateY: sessionModalY.interpolate({ inputRange: [0, 800], outputRange: [0, 800], extrapolateLeft: 'clamp' }) }] }]}>
+            <View style={{ alignItems: 'center', paddingTop: 12, paddingBottom: 6 }} {...sessionModalPan.panHandlers}>
+              <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: C.border }} />
+            </View>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingHorizontal: 20, marginBottom: 4 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 19, fontWeight: '800', color: C.text }}>{sc.label}</Text>
+                <Text style={{ fontSize: 12, color: C.textMuted, marginTop: 2 }}>
+                  {formatDate(sesh.created_at)}{sesh.turn_count ? ` · ${sesh.turn_count} turns` : ''}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => sessionCloseRef.current?.()} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Ionicons name="close" size={22} color={C.textSec} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} style={{ backgroundColor: C.bg }} contentContainerStyle={[S.statsContent, { paddingTop: 8 }]}>
+              <View style={[S.gradeCircle, { borderColor: gc }]}>
+                <Text style={[S.gradeText, { color: gc }]}>{grade ?? '—'}</Text>
+              </View>
+              {sd.gradeDesc ? <Text style={S.gradeDesc}>{sd.gradeDesc}</Text> : null}
+
+              {[
+                [
+                  { key: 'confidence',      value: sesh.avg_confidence       ?? '—', label: 'Confidence' },
+                  { key: 'clarity',         value: sesh.avg_clarity          ?? '—', label: 'Clarity' },
+                  { key: 'energy',          value: sesh.avg_energy           ?? '—', label: 'Energy' },
+                ],
+                [
+                  { key: 'specificity',     value: sesh.avg_specificity      ?? '—', label: 'Specificity' },
+                  { key: 'activeListening', value: sesh.avg_active_listening ?? '—', label: 'Active Listening' },
+                  { key: 'firstImpression', value: sd.firstImpression        ?? '—', label: 'First Impression' },
+                ],
+              ].map((row, ri) => (
+                <View key={ri} style={S.statsGrid}>
+                  {row.map(item => (
+                    <TouchableOpacity
+                      key={item.key}
+                      style={S.statBox}
+                      activeOpacity={0.7}
+                      onPress={() => { breakdownStatsRef.current = sd; setSelectedStat(item.key); }}
+                    >
+                      <Text style={S.statValue}>{item.value}</Text>
+                      <Text style={S.statLabel}>{item.label}</Text>
+                      <Text style={S.statSub}>out of 10</Text>
+                      <View style={S.statTapHint}>
+                        <Ionicons name="information-circle-outline" size={12} color="#CBD5E1" />
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              ))}
+
+              <View style={S.statsGrid}>
+                {[
+                  { value: sd.totalFillers ?? sesh.total_fillers ?? 0, label: 'Filler Words', sub: sd.topFillers ? `"${sd.topFillers}"` : null },
+                  {
+                    value: sd.pace?.toLowerCase().includes('fast') ? 'Fast'
+                      : sd.pace?.toLowerCase().includes('slow') ? 'Slow' : 'Good',
+                    label: 'Pace', sub: null,
+                  },
+                ].map((item, i) => (
+                  <View key={i} style={[S.statBox, { flex: 1 }]}>
+                    <Text style={S.statValue}>{item.value}</Text>
+                    <Text style={S.statLabel}>{item.label}</Text>
+                    {item.sub ? <Text style={S.statSub}>{item.sub}</Text> : null}
+                  </View>
+                ))}
+              </View>
+
+              {(sesh.avg_response_time != null) && (
+                <View style={S.responseCard}>
+                  <Text style={S.calloutLabel}>RESPONSE SPEED</Text>
+                  <Text style={[S.responseTime, { color: sesh.avg_response_time > 6 ? '#EF4444' : '#22C55E' }]}>
+                    {sesh.avg_response_time}s avg
+                  </Text>
+                  {sd.responsivenessNote ? <Text style={S.calloutText}>{sd.responsivenessNote}</Text> : null}
+                </View>
+              )}
+
+              {sd.strongestMoment ? (
+                <View style={S.calloutCard}>
+                  <Text style={S.calloutLabel}>STRONGEST MOMENT</Text>
+                  <Text style={S.calloutText}>{sd.strongestMoment}</Text>
+                </View>
+              ) : null}
+
+              {sd.improvements?.length > 0 && (
+                <View style={S.improvementsCard}>
+                  <Text style={[S.calloutLabel, { color: '#F97316' }]}>WORK ON</Text>
+                  {sd.improvements.map((item, i) => (
+                    <View key={i} style={S.improvRow}>
+                      <View style={S.improvDot} />
+                      <Text style={S.improvText}>{item}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              {sd.overallAssessment ? (
+                <Text style={S.overallText}>{sd.overallAssessment}</Text>
+              ) : null}
+            </ScrollView>
+          </Animated.View>
+        </View>
+        {/* Breakdown overlay inside this Modal to avoid Android nested-Modal stacking */}
+        {selectedStat !== null && (
+          <View style={[StyleSheet.absoluteFill, { justifyContent: 'flex-end' }]} pointerEvents="box-none">
+            <Animated.View
+              style={[StyleSheet.absoluteFill, { backgroundColor: '#000', opacity: breakdownModalY.interpolate({ inputRange: [0, 600], outputRange: [0.45, 0], extrapolate: 'clamp' }) }]}
+              pointerEvents="none"
+            />
+            <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => breakdownCloseRef.current?.()} />
+            <Animated.View style={[S.modalSheet, { transform: [{ translateY: breakdownModalY.interpolate({ inputRange: [0, 800], outputRange: [0, 800], extrapolateLeft: 'clamp' }) }] }]}>
+              <View style={S.modalHandleArea} {...breakdownModalPan.panHandlers}>
+                <View style={S.modalHandle} />
+              </View>
+              <Text style={S.modalTitle}>
+                {{ confidence: 'Confidence', clarity: 'Clarity', energy: 'Energy', specificity: 'Specificity', activeListening: 'Active Listening', firstImpression: 'First Impression' }[selectedStat]}
+              </Text>
+              <Text style={S.modalSub}>Notable moments from your conversation</Text>
+              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 20 }}>
+                {(() => {
+                  const moments = breakdownStatsRef.current?.statBreakdowns?.[selectedStat] ?? [];
+                  if (!moments.length) return <Text style={S.turnNotes}>No notable moments recorded.</Text>;
+                  return moments.map((m, i) => (
+                    <View key={i} style={[S.turnRow, { borderLeftColor: m.quality === 'good' ? '#22C55E' : '#EF4444' }]}>
+                      <View style={[S.scoreBadge, { backgroundColor: m.quality === 'good' ? (dark ? 'rgba(34,197,94,0.15)' : '#F0FDF4') : (dark ? 'rgba(239,68,68,0.15)' : '#FEF2F2'), alignSelf: 'flex-start', marginBottom: 6 }]}>
+                        <Text style={[S.scoreText, { color: m.quality === 'good' ? '#22C55E' : '#EF4444' }]}>
+                          {m.quality === 'good' ? 'Strong' : 'Weak'}
+                        </Text>
+                      </View>
+                      <Text style={S.turnTranscript}>{m.moment}</Text>
+                      {m.suggestion ? (
+                        <View style={S.suggestionBox}>
+                          <Text style={S.suggestionLabel}>TRY INSTEAD</Text>
+                          <Text style={S.suggestionText}>"{m.suggestion}"</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                  ));
+                })()}
+              </ScrollView>
+            </Animated.View>
+          </View>
+        )}
+      </Modal>
+    );
+  }
 
   // ── Training settings ─────────────────────────────────────────────────────
 
@@ -698,7 +1011,7 @@ export default function TrainerScreen() {
     clearTimeout(autoStartTimerRef.current);
     autoStartTimerRef.current = setTimeout(() => {
       if (recStatusRef.current === 'idle') startRecording();
-    }, 1500);
+    }, 600);
   }
 
   function typewriteLastMessage(fullText, onDone) {
@@ -893,6 +1206,12 @@ export default function TrainerScreen() {
       const result = await generateStats(scenario.id, analysesToUse);
       setStats(result);
       setPhase('stats');
+      saveSession({
+        scenarioId:    scenario.id,
+        scenarioLabel: scenario.label,
+        turnCount:     turnCountRef.current,
+        stats:         result,
+      }).catch(e => Alert.alert('Session not saved', e?.message ?? String(e)));
     } catch (e) {
       Alert.alert('Could not generate stats', e.message);
       setPhase('selecting');
@@ -911,6 +1230,7 @@ export default function TrainerScreen() {
     setRecStatus('idle');
     setEarlyEnded(false);
     setFillerCount(0);
+    setSelectedStat(null);
     analysesRef.current = [];
     turnCountRef.current = 0;
   }
@@ -954,7 +1274,49 @@ export default function TrainerScreen() {
               </TouchableOpacity>
             </Animated.View>
           ))}
+
+          {recentSessions.length > 0 && (
+            <View style={{ marginTop: 28 }}>
+              <Text style={S.recentHeading}>RECENT SESSIONS</Text>
+              {recentSessions.slice(0, 5).map(session => {
+                const sc  = SCENARIOS.find(s => s.id === session.scenario_id);
+                const col = sc?.color ?? '#94A3B8';
+                const gc  = session.grade?.startsWith('A') ? '#22C55E'
+                  : session.grade?.startsWith('B') ? C.accent
+                  : session.grade?.startsWith('C') ? '#F97316' : '#EF4444';
+                const metaParts = [
+                  session.avg_confidence   != null ? `${session.avg_confidence} conf`   : null,
+                  session.avg_clarity      != null ? `${session.avg_clarity} clar`      : null,
+                  session.avg_energy       != null ? `${session.avg_energy} enrg`       : null,
+                  session.turn_count       != null ? `${session.turn_count} turns`      : null,
+                ].filter(Boolean);
+                return (
+                  <TouchableOpacity
+                    key={session.id}
+                    style={S.recentCard}
+                    activeOpacity={0.7}
+                    onPress={() => { setSessionDetailData(session); setSessionDetailOpen(true); }}
+                  >
+                    <View style={[S.recentAccent, { backgroundColor: col }]} />
+                    <View style={S.recentBody}>
+                      <View style={S.recentTop}>
+                        <Text style={S.recentScenario}>{session.scenario_label}</Text>
+                        <View style={[S.recentGradeBadge, { backgroundColor: gc + '18' }]}>
+                          <Text style={[S.recentGradeText, { color: gc }]}>{session.grade ?? '—'}</Text>
+                        </View>
+                        <Text style={S.recentDate}>{formatDate(session.created_at)}</Text>
+                      </View>
+                      {metaParts.length > 0 && (
+                        <Text style={S.recentMeta}>{metaParts.join(' · ')}</Text>
+                      )}
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
         </ScrollView>
+        {renderSessionDetailModal()}
         {renderTrainSettingsModal()}
       </>
     );
@@ -985,6 +1347,7 @@ export default function TrainerScreen() {
     });
 
     return (
+      <>
       <ScrollView style={S.container} contentContainerStyle={S.statsContent} showsVerticalScrollIndicator={false}>
         <Text style={S.statsHeading}>Session Complete</Text>
         <Text style={S.statsScenario}>{scenario?.label}</Text>
@@ -1010,7 +1373,7 @@ export default function TrainerScreen() {
         ].map((row, ri) => (
           <Animated.View key={ri} style={[S.statsGrid, sa(ri)]}>
             {row.map(item => (
-              <TouchableOpacity key={item.key} style={S.statBox} onPress={() => setSelectedStat(item.key)} activeOpacity={0.7}>
+              <TouchableOpacity key={item.key} style={S.statBox} onPress={() => { breakdownStatsRef.current = stats; setSelectedStat(item.key); }} activeOpacity={0.7}>
                 <Text style={S.statValue}>{item.value}</Text>
                 <Text style={S.statLabel}>{item.label}</Text>
                 <Text style={S.statSub}>out of 10</Text>
@@ -1038,61 +1401,6 @@ export default function TrainerScreen() {
             </View>
           ))}
         </Animated.View>
-
-        <Modal
-          visible={selectedStat !== null}
-          transparent
-          animationType="none"
-          onRequestClose={() => { closeModalRef.current?.(); }}
-          onShow={() => {
-            dismissRef.current    = () => { setSelectedStat(null); modalY.setValue(600); };
-            closeModalRef.current = () => {
-              Animated.timing(modalY, { toValue: 600, duration: 280, useNativeDriver: true })
-                .start(() => dismissRef.current?.());
-            };
-            modalY.setValue(600);
-            Animated.spring(modalY, { toValue: 0, tension: 65, friction: 11, useNativeDriver: true }).start();
-          }}
-        >
-          <View style={S.modalOverlay}>
-            <Animated.View style={[
-              StyleSheet.absoluteFill,
-              { backgroundColor: '#000', opacity: modalY.interpolate({ inputRange: [0, 600], outputRange: [0.45, 0], extrapolate: 'clamp' }) },
-            ]} pointerEvents="none" />
-            <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => closeModalRef.current?.()} />
-            <Animated.View style={[S.modalSheet, { transform: [{ translateY: modalY.interpolate({ inputRange: [0, 800], outputRange: [0, 800], extrapolateLeft: 'clamp' }) }] }]}>
-              <View style={S.modalHandleArea} {...modalPan.panHandlers}>
-                <View style={S.modalHandle} />
-              </View>
-              <Text style={S.modalTitle}>
-                {{ confidence: 'Confidence', clarity: 'Clarity', energy: 'Energy', specificity: 'Specificity', activeListening: 'Active Listening', firstImpression: 'First Impression' }[selectedStat]}
-              </Text>
-              <Text style={S.modalSub}>Notable moments from your conversation</Text>
-              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 20 }}>
-                {(() => {
-                  const moments = stats?.statBreakdowns?.[selectedStat] ?? [];
-                  if (!moments.length) return <Text style={S.turnNotes}>No notable moments recorded.</Text>;
-                  return moments.map((m, i) => (
-                    <View key={i} style={[S.turnRow, { borderLeftColor: m.quality === 'good' ? '#22C55E' : '#EF4444' }]}>
-                      <View style={[S.scoreBadge, { backgroundColor: m.quality === 'good' ? '#F0FDF4' : '#FEF2F2', alignSelf: 'flex-start', marginBottom: 6 }]}>
-                        <Text style={[S.scoreText, { color: m.quality === 'good' ? '#22C55E' : '#EF4444' }]}>
-                          {m.quality === 'good' ? 'Strong' : 'Weak'}
-                        </Text>
-                      </View>
-                      <Text style={S.turnTranscript}>{m.moment}</Text>
-                      {m.suggestion ? (
-                        <View style={S.suggestionBox}>
-                          <Text style={S.suggestionLabel}>TRY INSTEAD</Text>
-                          <Text style={S.suggestionText}>"{m.suggestion}"</Text>
-                        </View>
-                      ) : null}
-                    </View>
-                  ));
-                })()}
-              </ScrollView>
-            </Animated.View>
-          </View>
-        </Modal>
 
         {stats.avgResponseTime != null && (
           <Animated.View style={[S.responseCard, sa(3)]}>
@@ -1138,6 +1446,8 @@ export default function TrainerScreen() {
           </TouchableOpacity>
         </Animated.View>
       </ScrollView>
+      {renderStatBreakdownModal()}
+      </>
     );
   }
 
@@ -1171,7 +1481,9 @@ export default function TrainerScreen() {
           </View>
         );
       }
-      return <Text style={S.footerLabel}>{recStatus === 'processing' ? 'Processing…' : 'Get ready…'}</Text>;
+      if (recStatus === 'processing') return <Text style={S.footerLabel}>Processing…</Text>;
+      if (recStatus === 'idle') return <Text style={S.footerLabel}>Starting…</Text>;
+      return null;
     }
 
     if (inputMode === INPUT_MODES.AUTO_COUNTDOWN) {
@@ -1314,7 +1626,7 @@ export default function TrainerScreen() {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
-const makeStyles = (C) => StyleSheet.create({
+const makeStyles = (C, dark) => StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
 
   selectContent: { padding: 20, paddingBottom: 110 },
@@ -1433,9 +1745,9 @@ const makeStyles = (C) => StyleSheet.create({
   turnTranscript:{ fontSize: 14, color: C.text, lineHeight: 20, marginBottom: 6 },
   turnNotes:     { fontSize: 12, color: C.textSec, fontStyle: 'italic', lineHeight: 17 },
 
-  suggestionBox:   { backgroundColor: '#F0FDF4', borderRadius: 10, padding: 10, marginTop: 4 },
+  suggestionBox:   { backgroundColor: dark ? 'rgba(34,197,94,0.12)' : '#F0FDF4', borderRadius: 10, padding: 10, marginTop: 4 },
   suggestionLabel: { fontSize: 9, fontWeight: '700', color: '#22C55E', letterSpacing: 1, marginBottom: 4 },
-  suggestionText:  { fontSize: 13, color: '#166534', lineHeight: 19, fontStyle: 'italic' },
+  suggestionText:  { fontSize: 13, color: dark ? '#86EFAC' : '#166534', lineHeight: 19, fontStyle: 'italic' },
 
   responseCard: { backgroundColor: C.card, borderRadius: 14, padding: 16, width: '100%', marginBottom: 10, alignItems: 'center', borderWidth: 1, borderColor: C.border },
   responseTime: { fontSize: 28, fontWeight: '800', marginBottom: 4 },
@@ -1474,4 +1786,15 @@ const makeStyles = (C) => StyleSheet.create({
   btnPrimaryText:   { color: '#fff', fontWeight: '700', fontSize: 15 },
   btnSecondary:     { flex: 1, backgroundColor: C.accentBg, borderRadius: 14, paddingVertical: 15, alignItems: 'center' },
   btnSecondaryText: { color: C.accent, fontWeight: '700', fontSize: 15 },
+
+  recentHeading:    { fontSize: 11, fontWeight: '700', color: C.textMuted, letterSpacing: 1.2, marginBottom: 10 },
+  recentCard:       { flexDirection: 'row', backgroundColor: C.card, borderRadius: 12, marginBottom: 8, overflow: 'hidden', shadowColor: C.shadow, shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 4, elevation: 1 },
+  recentAccent:     { width: 3, alignSelf: 'stretch' },
+  recentBody:       { flex: 1, paddingVertical: 10, paddingHorizontal: 12 },
+  recentTop:        { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 3 },
+  recentScenario:   { fontSize: 13, fontWeight: '700', color: C.text, flex: 1 },
+  recentGradeBadge: { borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2 },
+  recentGradeText:  { fontSize: 11, fontWeight: '800' },
+  recentDate:       { fontSize: 11, color: C.textMuted },
+  recentMeta:       { fontSize: 11, color: C.textMuted },
 });
