@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../lib/theme';
 import ChallengesScreen from '../screens/ChallengesScreen';
 import TrainerScreen from '../screens/TrainerScreen';
+import ProgressScreen from '../screens/ProgressScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 
 const Tab = createBottomTabNavigator();
@@ -12,6 +13,7 @@ const Tab = createBottomTabNavigator();
 const ICONS = {
   Challenges: 'trophy-outline',
   Trainer:    'mic-outline',
+  Progress:   'bar-chart-outline',
   Settings:   'settings-outline',
 };
 
@@ -78,6 +80,7 @@ export default function TabNavigator() {
     >
       <Tab.Screen name="Challenges" component={ChallengesScreen} />
       <Tab.Screen name="Trainer"    component={TrainerScreen} />
+      <Tab.Screen name="Progress"   component={ProgressScreen} />
       <Tab.Screen name="Settings"   component={SettingsScreen} />
     </Tab.Navigator>
   );
