@@ -1608,7 +1608,7 @@ export default function TrainerScreen() {
                   profileAvatarUri
                     ? <Image source={{ uri: profileAvatarUri }} style={S.userAvatar} />
                     : <View style={[S.userAvatar, { backgroundColor: C.accent + '33', alignItems: 'center', justifyContent: 'center' }]}>
-                        <Ionicons name="person" size={14} color={C.accent} />
+                        <Ionicons name="person" size={18} color={C.accent} />
                       </View>
                 )}
               </View>
@@ -1670,9 +1670,9 @@ const makeStyles = (C, dark) => StyleSheet.create({
 
   row:     { flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
   rowUser: { justifyContent: 'flex-end' },
-  avatar:     { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', marginBottom: 2 },
-  avatarText: { color: '#fff', fontWeight: '700', fontSize: 12 },
-  userAvatar: { width: 30, height: 30, borderRadius: 15, marginBottom: 2 },
+  avatar:     { width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center', marginBottom: 2 },
+  avatarText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  userAvatar: { width: 46, height: 46, borderRadius: 23, marginBottom: 2 },
   bubbleAI: {
     flex: 1, backgroundColor: C.card, borderRadius: 18, borderBottomLeftRadius: 4,
     paddingHorizontal: 14, paddingVertical: 10,

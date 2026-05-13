@@ -3,20 +3,18 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../lib/theme';
-import ChallengesScreen from '../screens/ChallengesScreen';
+import LearnScreen from '../screens/LearnScreen';
 import TrainerScreen from '../screens/TrainerScreen';
-import ProgressScreen from '../screens/ProgressScreen';
-import SettingsScreen from '../screens/SettingsScreen';
+import ChallengesScreen from '../screens/ChallengesScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 
 const Tab = createBottomTabNavigator();
 
 const ICONS = {
-  Challenges: 'trophy-outline',
+  Learn:      'book-outline',
   Trainer:    'mic-outline',
-  Progress:   'bar-chart-outline',
+  Challenges: 'trophy-outline',
   Profile:    'person-outline',
-  Settings:   'settings-outline',
 };
 
 function FloatingTabBar({ state, descriptors, navigation }) {
@@ -55,7 +53,7 @@ const S = StyleSheet.create({
     position: 'absolute',
     left: 19, right: 19,
     flexDirection: 'row',
-    backgroundColor: '#fff', // overridden inline via useTheme
+    backgroundColor: '#fff',
     height: 62,
     shadowColor: '#0F172A',
     shadowOffset: { width: 0, height: 8 },
@@ -80,11 +78,10 @@ export default function TabNavigator() {
         headerShadowVisible: false,
       }}
     >
-      <Tab.Screen name="Challenges" component={ChallengesScreen} />
+      <Tab.Screen name="Learn"      component={LearnScreen} />
       <Tab.Screen name="Trainer"    component={TrainerScreen} />
-      <Tab.Screen name="Progress"   component={ProgressScreen} />
+      <Tab.Screen name="Challenges" component={ChallengesScreen} />
       <Tab.Screen name="Profile"    component={ProfileScreen} />
-      <Tab.Screen name="Settings"   component={SettingsScreen} />
     </Tab.Navigator>
   );
 }
