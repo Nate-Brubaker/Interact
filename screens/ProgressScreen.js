@@ -1,7 +1,7 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  ActivityIndicator, Dimensions,
+  ActivityIndicator, Dimensions, Animated,
 } from 'react-native';
 import { LineChart, BarChart } from 'react-native-chart-kit';
 import { Ionicons } from '@expo/vector-icons';
@@ -61,12 +61,14 @@ function getXPLevel(xp) {
 function calcStreaks(sessions) {
   if (!sessions.length) return { current: 0, longest: 0 };
   const days  = new Set(sessions.map(s => s.created_at.slice(0, 10)));
-  const today = new Date().toISOString().slice(0, 10);
+  const now   = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
   let current = 0;
   const d = new Date();
   if (!days.has(today)) d.setDate(d.getDate() - 1);
-  while (days.has(d.toISOString().slice(0, 10))) {
+  const localStr = (dt) => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+  while (days.has(localStr(d))) {
     current++;
     d.setDate(d.getDate() - 1);
   }
@@ -119,111 +121,172 @@ function calcAverages(sessions) {
   return result;
 }
 
-// ─── Custom calendar ─────────────────────────────────────────────────────────
-
-const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-const DAY_LABELS  = ['Su','Mo','Tu','We','Th','Fr','Sa'];
-
-function buildMonthGrid(year, month) {
-  const firstDay = new Date(year, month, 1).getDay();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const cells = [];
-  for (let i = 0; i < firstDay; i++) cells.push(null);
-  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
-  return cells;
+function streakColor(n) {
+  if (n === 0) return '#94A3B8';
+  if (n < 3)   return '#FB923C';
+  if (n < 7)   return '#F97316';
+  if (n < 14)  return '#EF4444';
+  if (n < 30)  return '#DC2626';
+  return '#7F1D1D';
 }
 
-function ActivityCalendar({ sessions, C, dark }) {
-  const sessionCounts = useMemo(() => {
-    const counts = {};
-    sessions.forEach(s => {
-      const day = s.created_at.slice(0, 10);
-      counts[day] = (counts[day] ?? 0) + 1;
-    });
-    return counts;
-  }, [sessions]);
+const WEEK_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 
-  const months = useMemo(() => {
-    const result = [];
-    const today = new Date();
-    for (let i = 2; i >= 0; i--) {
-      const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
-      result.push({ year: d.getFullYear(), month: d.getMonth() });
-    }
-    return result;
+function StreakCard({ currentStreak, sessions, C, dark }) {
+  const fire      = streakColor(currentStreak);
+  const pulse  = useRef(new Animated.Value(1)).current;
+  const wiggle = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (currentStreak === 0) return;
+    Animated.parallel([
+      Animated.sequence([
+        Animated.timing(pulse,  { toValue: 1.3,  duration: 420, useNativeDriver: true }),
+        Animated.timing(pulse,  { toValue: 1,     duration: 480, useNativeDriver: true }),
+      ]),
+      Animated.sequence([
+        Animated.timing(wiggle, { toValue:  1,    duration: 220, useNativeDriver: true }),
+        Animated.timing(wiggle, { toValue: -1,    duration: 220, useNativeDriver: true }),
+        Animated.timing(wiggle, { toValue:  0.5,  duration: 180, useNativeDriver: true }),
+        Animated.timing(wiggle, { toValue:  0,    duration: 180, useNativeDriver: true }),
+      ]),
+    ]).start();
   }, []);
 
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const cellSize = Math.floor((SCREEN_W - 32 - 32 - 6 * 4) / 7);
+  const rotate = wiggle.interpolate({ inputRange: [-1, 1], outputRange: ['-6deg', '6deg'] });
+
+  const sessionDays = useMemo(() => new Set(sessions.map(s => s.created_at.slice(0, 10))), [sessions]);
+
+  const today    = new Date();
+  const todayDow = today.getDay();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+
+  const week = WEEK_LABELS.map((label, i) => {
+    const d = new Date(today);
+    d.setDate(today.getDate() - todayDow + i);
+    const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    return { label, dateStr, isToday: dateStr === todayStr, isFuture: i > todayDow };
+  });
 
   return (
-    <View style={{ gap: 20 }}>
-      {months.map(({ year, month }) => {
-        const cells = buildMonthGrid(year, month);
-        return (
-          <View key={`${year}-${month}`}>
-            <Text style={{ fontSize: 12, fontWeight: '700', color: C.text, marginBottom: 8 }}>
-              {MONTH_NAMES[month]} {year}
+    <View style={{ flex: 1, backgroundColor: C.card, borderRadius: 18, padding: 14,
+      alignItems: 'center', justifyContent: 'center', gap: 2,
+      shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 6, elevation: 2,
+    }}>
+      {/* Flame */}
+      <Animated.View style={{ alignItems: 'center', justifyContent: 'center', marginBottom: 2, transform: [{ scale: pulse }, { rotate }] }}>
+        <Ionicons name="flame" size={22} color={fire + '44'} style={{ position: 'absolute', top: 6 }} />
+        <Ionicons name="flame" size={44} color={fire} />
+      </Animated.View>
+
+      {/* Number */}
+      <Text style={{ fontSize: 36, fontWeight: '900', color: C.text, lineHeight: 40 }}>
+        {currentStreak}
+      </Text>
+      <Text style={{ fontSize: 11, fontWeight: '700', color: fire, marginBottom: 8 }}>
+        day streak
+      </Text>
+
+      {/* This-week tracker */}
+      <View style={{ width: '100%', backgroundColor: dark ? '#0F172A' : '#F1F5F9', borderRadius: 12, padding: 8 }}>
+        <View style={{ flexDirection: 'row', marginBottom: 5 }}>
+          {week.map(({ label, isToday }) => (
+            <Text key={label} style={{ fontSize: 8, fontWeight: '700', textAlign: 'center', flex: 1,
+              color: isToday ? fire : C.textMuted }}>
+              {label}
             </Text>
-            {/* Day-of-week labels */}
-            <View style={{ flexDirection: 'row', marginBottom: 4 }}>
-              {DAY_LABELS.map(l => (
-                <View key={l} style={{ width: cellSize, alignItems: 'center' }}>
-                  <Text style={{ fontSize: 9, color: C.textMuted, fontWeight: '600' }}>{l}</Text>
-                </View>
-              ))}
-            </View>
-            {/* Day cells */}
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>
-              {cells.map((day, idx) => {
-                if (day === null) {
-                  return <View key={`e-${idx}`} style={{ width: cellSize, height: cellSize }} />;
-                }
-                const pad   = String(month + 1).padStart(2, '0') + '/' + String(day).padStart(2, '0');
-                const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                const count = sessionCounts[dateStr] ?? 0;
-                const isToday = dateStr === todayStr;
+          ))}
+        </View>
+        <View style={{ flexDirection: 'row', gap: 3 }}>
+          {week.map(({ dateStr, isToday }) => {
+            const done = sessionDays.has(dateStr);
+            return (
+              <View key={dateStr} style={{ flex: 1, aspectRatio: 1, borderRadius: 6,
+                backgroundColor: done ? fire : (dark ? '#1E293B' : '#E2E8F0'),
+                borderWidth: isToday && !done ? 1.5 : 0,
+                borderColor: fire,
+                alignItems: 'center', justifyContent: 'center',
+              }}>
+                {done && <Ionicons name="checkmark" size={10} color="#fff" />}
+              </View>
+            );
+          })}
+        </View>
+      </View>
+    </View>
+  );
+}
 
-                let bg, textColor;
-                if (count === 0) {
-                  bg = dark ? '#1E293B' : '#F1F5F9';
-                  textColor = dark ? '#475569' : '#94A3B8';
-                } else if (count === 1) {
-                  bg = '#6366F133';
-                  textColor = '#6366F1';
-                } else if (count === 2) {
-                  bg = '#6366F166';
-                  textColor = '#6366F1';
-                } else {
-                  bg = '#6366F1';
-                  textColor = '#fff';
-                }
+// ─── Custom calendar ─────────────────────────────────────────────────────────
 
-                return (
-                  <View
-                    key={dateStr}
-                    style={{
-                      width: cellSize, height: cellSize,
-                      borderRadius: 6,
-                      backgroundColor: bg,
-                      alignItems: 'center', justifyContent: 'center',
-                      borderWidth: isToday ? 1.5 : 0,
-                      borderColor: isToday ? '#6366F1' : 'transparent',
-                    }}
-                  >
-                    <Text style={{ fontSize: 10, fontWeight: count > 0 ? '700' : '400', color: textColor }}>
-                      {day}
-                    </Text>
-                    {count > 0 && (
-                      <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: textColor, marginTop: 1, opacity: 0.8 }} />
-                    )}
-                  </View>
-                );
-              })}
-            </View>
+const DAY_HEADERS = ['S', 'M', 'T', 'W', 'TH', 'F', 'S'];
+const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const CAL_GAP  = 4;
+const CAL_HALF = Math.floor((SCREEN_W - 64 - 16) / 2);
+const CELL     = Math.floor((CAL_HALF - 6 * CAL_GAP) / 7);
+
+function ActivityCalendar({ sessions, C, dark }) {
+  const activeDays = useMemo(() => {
+    const set = new Set();
+    sessions.forEach(s => set.add(s.created_at.slice(0, 10)));
+    return set;
+  }, [sessions]);
+
+  const today       = new Date();
+  const year        = today.getFullYear();
+  const month       = today.getMonth();
+  const todayStr    = `${year}-${String(month + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const todayDow    = today.getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const firstDow    = new Date(year, month, 1).getDay();
+
+  const cells = [
+    ...Array.from({ length: firstDow }, () => null),
+    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+  ];
+  while (cells.length % 7 !== 0) cells.push(null);
+  const weeks = Array.from({ length: cells.length / 7 }, (_, i) => cells.slice(i * 7, i * 7 + 7));
+
+  return (
+    <View style={{ width: CAL_HALF }}>
+      {/* Day headers */}
+      <View style={{ flexDirection: 'row', gap: CAL_GAP, marginBottom: 6 }}>
+        {DAY_HEADERS.map((h, i) => (
+          <View key={i} style={{ width: CELL, alignItems: 'center' }}>
+            <Text style={{ fontSize: 9, fontWeight: '700', color: i === todayDow ? '#22C55E' : C.textMuted }}>
+              {h}
+            </Text>
           </View>
-        );
-      })}
+        ))}
+      </View>
+      {/* Week rows */}
+      <View style={{ gap: CAL_GAP }}>
+        {weeks.map((week, rowIdx) => (
+          <View key={rowIdx} style={{ flexDirection: 'row', gap: CAL_GAP }}>
+            {week.map((day, colIdx) => {
+              if (day === null) {
+                return <View key={colIdx} style={{ width: CELL, height: CELL }} />;
+              }
+              const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+              const active  = activeDays.has(dateStr);
+              const isToday = dateStr === todayStr;
+              return (
+                <View
+                  key={colIdx}
+                  style={{
+                    width: CELL, height: CELL, borderRadius: 4,
+                    backgroundColor: active
+                      ? '#22C55E'
+                      : (dark ? 'rgba(34,197,94,0.12)' : '#DCFCE7'),
+                    borderWidth: isToday ? 2 : 0,
+                    borderColor: '#22C55E',
+                  }}
+                />
+              );
+            })}
+          </View>
+        ))}
+      </View>
     </View>
   );
 }
@@ -303,25 +366,6 @@ export default function ProgressScreen() {
       contentContainerStyle={{ padding: 16, paddingBottom: 110 }}
       showsVerticalScrollIndicator={false}
     >
-      {/* ── Streak card ─────────────────────────────────────────────────── */}
-      <View style={[S.streakCard, { backgroundColor: C.accent }]}>
-        <View style={S.streakMain}>
-          <Text style={S.streakFire}>🔥</Text>
-          <Text style={S.streakNum}>{currentStreak}</Text>
-          <Text style={S.streakSuffix}>day{currentStreak !== 1 ? 's' : ''}</Text>
-        </View>
-        <View style={S.streakDivider} />
-        <View style={S.streakMeta}>
-          <Text style={S.streakMetaVal}>{longestStreak}</Text>
-          <Text style={S.streakMetaLabel}>Best Streak</Text>
-        </View>
-        <View style={S.streakDivider} />
-        <View style={S.streakMeta}>
-          <Text style={S.streakMetaVal}>{sessions.length}</Text>
-          <Text style={S.streakMetaLabel}>Sessions</Text>
-        </View>
-      </View>
-
       {/* ── Challenges progress ──────────────────────────────────────────── */}
       <Text style={[S.section, { color: C.textMuted }]}>CHALLENGES</Text>
       <View style={[S.card, { backgroundColor: C.card, padding: 16, marginBottom: 24 }]}>
@@ -369,29 +413,22 @@ export default function ProgressScreen() {
         </View>
       </View>
 
-      {/* ── Activity calendar ────────────────────────────────────────────── */}
-      <Text style={[S.section, { color: C.textMuted }]}>ACTIVITY — LAST 3 MONTHS</Text>
-      <View style={[S.card, { backgroundColor: C.card }]}>
-        <ActivityCalendar sessions={sessions} C={C} dark={dark} />
-        {/* Legend */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 14, justifyContent: 'center' }}>
-          {[
-            { bg: dark ? '#1E293B' : '#F1F5F9', label: 'None' },
-            { bg: '#6366F133', label: '1' },
-            { bg: '#6366F166', label: '2' },
-            { bg: '#6366F1',   label: '3+' },
-          ].map(({ bg, label }) => (
-            <View key={label} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-              <View style={{ width: 12, height: 12, borderRadius: 3, backgroundColor: bg }} />
-              <Text style={{ fontSize: 10, color: C.textMuted }}>{label}</Text>
-            </View>
-          ))}
+      {/* ── Activity calendar + streak ───────────────────────────────────── */}
+      <Text style={[S.section, { color: C.textMuted }]}>ACTIVITY</Text>
+      <View style={{ flexDirection: 'row', gap: 10, alignItems: 'stretch', marginBottom: 24 }}>
+        <View style={[S.card, { backgroundColor: C.card, marginBottom: 0 }]}>
+          <ActivityCalendar sessions={sessions} C={C} dark={dark} />
         </View>
+        <StreakCard
+          currentStreak={currentStreak}
+          sessions={sessions}
+          C={C} dark={dark}
+        />
       </View>
 
-      {/* ── All-time averages ────────────────────────────────────────────── */}
       {sessions.length > 0 && (
         <>
+          {/* ── All-time averages ────────────────────────────────────────────── */}
           <Text style={[S.section, { color: C.textMuted }]}>ALL-TIME AVERAGES</Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
             {STATS.filter(s => s.key !== 'grade').map(stat => (
@@ -509,18 +546,11 @@ export default function ProgressScreen() {
 const S = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
-  streakCard: {
-    flexDirection: 'row', alignItems: 'center',
-    borderRadius: 20, padding: 20, marginBottom: 24,
+  statChip: {
+    flex: 1, borderRadius: 16, padding: 14, alignItems: 'center',
+    shadowColor: '#0F172A', shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05, shadowRadius: 4, elevation: 2,
   },
-  streakMain:    { alignItems: 'center', flex: 1.2 },
-  streakFire:    { fontSize: 28, lineHeight: 34 },
-  streakNum:     { fontSize: 38, fontWeight: '900', color: '#fff', lineHeight: 44 },
-  streakSuffix:  { fontSize: 13, fontWeight: '600', color: 'rgba(255,255,255,0.7)', marginTop: -2 },
-  streakDivider: { width: 1, height: 48, backgroundColor: 'rgba(255,255,255,0.2)', marginHorizontal: 16 },
-  streakMeta:      { flex: 1, alignItems: 'center' },
-  streakMetaVal:   { fontSize: 22, fontWeight: '800', color: '#fff' },
-  streakMetaLabel: { fontSize: 11, fontWeight: '500', color: 'rgba(255,255,255,0.65)', marginTop: 2 },
 
   section: { fontSize: 11, fontWeight: '700', letterSpacing: 1.2, marginBottom: 10 },
 
