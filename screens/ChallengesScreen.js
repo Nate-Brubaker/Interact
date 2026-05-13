@@ -5,7 +5,7 @@ import {
   UIManager, Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { CHALLENGES } from '../data/challenges';
 import { useTheme } from '../lib/theme';
@@ -16,12 +16,12 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 
 // ─── XP level system ─────────────────────────────────────────────────────────
 const LEVELS = [
-  { threshold: 0,   title: 'Wallflower',     color: '#94A3B8' },
-  { threshold: 50,  title: 'Ice Breaker',    color: '#60A5FA' },
-  { threshold: 150, title: 'Explorer',       color: '#34D399' },
-  { threshold: 300, title: 'Connector',      color: '#A78BFA' },
-  { threshold: 500, title: 'Champion',       color: '#F59E0B' },
-  { threshold: 750, title: 'Social Master',  color: '#F43F5E' },
+  { threshold: 0,   title: 'Wallflower',    color: '#94A3B8', cardBg: '#0F172A' },
+  { threshold: 50,  title: 'Ice Breaker',   color: '#60A5FA', cardBg: '#080F1E' },
+  { threshold: 150, title: 'Explorer',      color: '#34D399', cardBg: '#041510' },
+  { threshold: 300, title: 'Connector',     color: '#A78BFA', cardBg: '#100820' },
+  { threshold: 500, title: 'Champion',      color: '#F59E0B', cardBg: '#160E00' },
+  { threshold: 750, title: 'Social Master', color: '#F43F5E', cardBg: '#160306' },
 ];
 
 function getLevel(xp) {
@@ -54,6 +54,7 @@ const FILTERS = ['All', 'Easy', 'Medium', 'Hard'];
 export default function ChallengesScreen() {
   const { dark, colors: C } = useTheme();
   const S = useMemo(() => makeStyles(C, dark), [C, dark]);
+  const navigation = useNavigation();
 
   const [completedIds, setCompletedIds] = useState(new Set());
   const [loading,      setLoading]      = useState(true);
@@ -86,6 +87,23 @@ export default function ChallengesScreen() {
   );
   const levelInfo = useMemo(() => getLevel(totalXP), [totalXP]);
   const daily     = useMemo(() => getDailyChallenge(), []);
+
+  useEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginRight: 16,
+          backgroundColor: levelInfo.color + '22', borderRadius: 20,
+          paddingHorizontal: 10, paddingVertical: 4,
+          borderWidth: 1, borderColor: levelInfo.color + '55',
+        }}>
+          <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: levelInfo.color }} />
+          <Text style={{ fontSize: 12, fontWeight: '700', color: levelInfo.color }}>
+            {levelInfo.title}
+          </Text>
+        </View>
+      ),
+    });
+  }, [levelInfo]);
 
   useEffect(() => {
     if (!loading) {
@@ -145,11 +163,11 @@ export default function ChallengesScreen() {
       showsVerticalScrollIndicator={false}
     >
       {/* ── Player card ──────────────────────────────────────────────────── */}
-      <Animated.View style={[S.playerCard, { opacity: headerAnim, transform: [{ translateY: headerAnim.interpolate({ inputRange: [0,1], outputRange: [12, 0] }) }] }]}>
+      <Animated.View style={[S.playerCard, { backgroundColor: levelInfo.cardBg, opacity: headerAnim, transform: [{ translateY: headerAnim.interpolate({ inputRange: [0,1], outputRange: [12, 0] }) }] }]}>
         {/* Decorative circles */}
-        <View style={S.decoCircle1} />
-        <View style={S.decoCircle2} />
-        <View style={S.decoCircle3} />
+        <View style={[S.decoCircle1, { backgroundColor: levelInfo.color + '18' }]} />
+        <View style={[S.decoCircle2, { backgroundColor: levelInfo.color + '10' }]} />
+        <View style={[S.decoCircle3, { backgroundColor: levelInfo.color + '22' }]} />
 
         <View style={S.playerCardInner}>
           {/* Left: level badge + info */}

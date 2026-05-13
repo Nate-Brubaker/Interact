@@ -7,6 +7,7 @@ import ChallengesScreen from '../screens/ChallengesScreen';
 import TrainerScreen from '../screens/TrainerScreen';
 import ProgressScreen from '../screens/ProgressScreen';
 import SettingsScreen from '../screens/SettingsScreen';
+import ProfileScreen from '../screens/ProfileScreen';
 
 const Tab = createBottomTabNavigator();
 
@@ -14,6 +15,7 @@ const ICONS = {
   Challenges: 'trophy-outline',
   Trainer:    'mic-outline',
   Progress:   'bar-chart-outline',
+  Profile:    'person-outline',
   Settings:   'settings-outline',
 };
 
@@ -81,6 +83,7 @@ export default function TabNavigator() {
       <Tab.Screen name="Challenges" component={ChallengesScreen} />
       <Tab.Screen name="Trainer"    component={TrainerScreen} />
       <Tab.Screen name="Progress"   component={ProgressScreen} />
+      <Tab.Screen name="Profile"    component={ProfileScreen} />
       <Tab.Screen name="Settings"   component={SettingsScreen} />
     </Tab.Navigator>
   );

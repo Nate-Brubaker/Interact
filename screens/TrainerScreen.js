@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, Switch,
-  ActivityIndicator, Animated, Alert, SafeAreaView, Easing, Modal, PanResponder,
+  ActivityIndicator, Animated, Alert, SafeAreaView, Easing, Modal, PanResponder, Image,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import {
   useAudioRecorder, useAudioRecorderState,
@@ -404,6 +405,7 @@ export default function TrainerScreen() {
   const { dark, colors: C } = useTheme();
   const S = useMemo(() => makeStyles(C, dark), [C, dark]);
 
+  const [profileAvatarUri, setProfileAvatarUri] = useState(null);
   const [phase, setPhase] = useState('selecting');
   const [scenario, setScenario] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -527,6 +529,7 @@ export default function TrainerScreen() {
   useFocusEffect(
     useCallback(() => {
       getSettings().then(s => setInputMode(s.inputMode));
+      AsyncStorage.getItem('profile_avatar_uri').then(uri => { if (uri) setProfileAvatarUri(uri); });
     }, [])
   );
 
@@ -1601,6 +1604,13 @@ export default function TrainerScreen() {
                     {msg.text}
                   </Text>
                 </View>
+                {msg.role === 'user' && (
+                  profileAvatarUri
+                    ? <Image source={{ uri: profileAvatarUri }} style={S.userAvatar} />
+                    : <View style={[S.userAvatar, { backgroundColor: C.accent + '33', alignItems: 'center', justifyContent: 'center' }]}>
+                        <Ionicons name="person" size={14} color={C.accent} />
+                      </View>
+                )}
               </View>
             </FadeSlide>
           );
@@ -1662,6 +1672,7 @@ const makeStyles = (C, dark) => StyleSheet.create({
   rowUser: { justifyContent: 'flex-end' },
   avatar:     { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', marginBottom: 2 },
   avatarText: { color: '#fff', fontWeight: '700', fontSize: 12 },
+  userAvatar: { width: 30, height: 30, borderRadius: 15, marginBottom: 2 },
   bubbleAI: {
     flex: 1, backgroundColor: C.card, borderRadius: 18, borderBottomLeftRadius: 4,
     paddingHorizontal: 14, paddingVertical: 10,
