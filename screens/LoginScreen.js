@@ -4,12 +4,13 @@ import {
   StyleSheet, Alert, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { supabase } from '../lib/supabase';
-import { LIGHT } from '../lib/theme';
+import { useTheme } from '../lib/theme';
 
 export default function LoginScreen({ navigation }) {
-  const [email, setEmail] = useState('');
+  const { colors: C } = useTheme();
+  const [email,    setEmail]    = useState('');
   const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loading,  setLoading]  = useState(false);
 
   async function handleLogin() {
     if (!email || !password) return;
@@ -19,40 +20,43 @@ export default function LoginScreen({ navigation }) {
     setLoading(false);
   }
 
+  const inputStyle = [S.input, { borderColor: C.border, color: C.text, backgroundColor: C.card }];
+
   return (
     <KeyboardAvoidingView
-      style={styles.container}
+      style={[S.container, { backgroundColor: C.bg }]}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      <View style={styles.inner}>
-        <Text style={styles.logo}>Interact</Text>
-        <Text style={styles.tagline}>Level up your social skills</Text>
+      <View style={S.inner}>
+        <Text style={[S.logo, { color: C.accent }]}>Interact</Text>
+        <Text style={[S.tagline, { color: C.textMuted }]}>Level up your social skills</Text>
 
         <TextInput
-          style={styles.input}
+          style={inputStyle}
           placeholder="Email"
-          placeholderTextColor="#9CA3AF"
+          placeholderTextColor={C.textMuted}
           value={email}
           onChangeText={setEmail}
           autoCapitalize="none"
           keyboardType="email-address"
         />
         <TextInput
-          style={styles.input}
+          style={inputStyle}
           placeholder="Password"
-          placeholderTextColor="#9CA3AF"
+          placeholderTextColor={C.textMuted}
           value={password}
           onChangeText={setPassword}
           secureTextEntry
         />
 
-        <TouchableOpacity style={styles.button} onPress={handleLogin} disabled={loading}>
-          <Text style={styles.buttonText}>{loading ? 'Signing in...' : 'Sign In'}</Text>
+        <TouchableOpacity style={[S.button, { backgroundColor: C.accent }]} onPress={handleLogin} disabled={loading}>
+          <Text style={S.buttonText}>{loading ? 'Signing in...' : 'Sign In'}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity onPress={() => navigation.navigate('SignUp')}>
-          <Text style={styles.link}>
-            Don't have an account? <Text style={styles.linkBold}>Sign up</Text>
+          <Text style={[S.link, { color: C.textMuted }]}>
+            Don't have an account?{' '}
+            <Text style={[S.linkBold, { color: C.accent }]}>Sign up</Text>
           </Text>
         </TouchableOpacity>
       </View>
@@ -60,47 +64,18 @@ export default function LoginScreen({ navigation }) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff' },
-  inner: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-  },
-  logo: {
-    fontSize: 40,
-    fontWeight: 'bold',
-    color: LIGHT.accent,
-    marginBottom: 8,
-  },
-  tagline: {
-    fontSize: 16,
-    color: '#6B7280',
-    marginBottom: 40,
-  },
+const S = StyleSheet.create({
+  container: { flex: 1 },
+  inner:     { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 },
+  logo:      { fontSize: 40, fontWeight: 'bold', marginBottom: 8 },
+  tagline:   { fontSize: 16, marginBottom: 40 },
   input: {
-    width: '100%',
-    height: 52,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    fontSize: 16,
-    marginBottom: 12,
-    color: '#111827',
+    width: '100%', height: 52, borderWidth: 1,
+    borderRadius: 12, paddingHorizontal: 16,
+    fontSize: 16, marginBottom: 12,
   },
-  button: {
-    width: '100%',
-    height: 52,
-    backgroundColor: LIGHT.accent,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 8,
-    marginBottom: 20,
-  },
+  button:     { width: '100%', height: 52, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginTop: 8, marginBottom: 20 },
   buttonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  link: { color: '#6B7280', fontSize: 14 },
-  linkBold: { color: LIGHT.accent, fontWeight: '600' },
+  link:       { fontSize: 14 },
+  linkBold:   { fontWeight: '600' },
 });

@@ -1,9 +1,9 @@
-import { useState, useCallback, useMemo } from 'react';
+﻿import { useState, useCallback, useMemo } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useTheme } from '../lib/theme';
-import { getSessions } from '../lib/sessions';
+import { getSessions } from '../lib/api';
 
 const SCENARIO_META = {
   job_interview: { color: '#6366F1', icon: 'briefcase-outline' },
@@ -34,7 +34,7 @@ function formatDate(iso) {
 function StatCell({ label, value, C }) {
   return (
     <View style={{ alignItems: 'center', minWidth: 38 }}>
-      <Text style={{ fontSize: 15, fontWeight: '800', color: C.text }}>{value ?? '—'}</Text>
+      <Text style={{ fontSize: 15, fontWeight: '800', color: C.text }}>{value ?? '-'}</Text>
       <Text style={{ fontSize: 9, fontWeight: '600', color: C.textMuted, marginTop: 1 }}>{label}</Text>
     </View>
   );
@@ -61,7 +61,7 @@ function SessionCard({ session, C, S }) {
             <Text style={S.cardScenario} numberOfLines={1}>{session.scenario_label}</Text>
           </View>
           <View style={[S.gradeBadge, { backgroundColor: gc + '18' }]}>
-            <Text style={[S.gradeText, { color: gc }]}>{session.grade ?? '—'}</Text>
+            <Text style={[S.gradeText, { color: gc }]}>{session.grade ?? '-'}</Text>
           </View>
           <Text style={S.cardDate}>{formatDate(session.created_at)}</Text>
         </View>

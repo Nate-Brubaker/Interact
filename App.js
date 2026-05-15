@@ -1,9 +1,10 @@
-import { useState, useEffect, useLayoutEffect, useRef } from 'react';
+﻿import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { View, ActivityIndicator, Animated, StyleSheet } from 'react-native';
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import { supabase } from './lib/supabase';
 import { ThemeProvider, useTheme } from './lib/theme';
+import { DataProvider } from './lib/DataContext';
 import TabNavigator from './navigation/TabNavigator';
 import AuthNavigator from './navigation/AuthNavigator';
 
@@ -14,7 +15,7 @@ function AppContent({ session }) {
   const isFirstRender = useRef(true);
   const prevDarkRef   = useRef(dark);
 
-  // Computed during render before useLayoutEffect updates prevDarkRef — gives the OLD bg color
+  // Computed during render before useLayoutEffect updates prevDarkRef - gives the OLD bg color
   const overlayBg = prevDarkRef.current ? '#0F172A' : '#F8F9FF';
 
   useLayoutEffect(() => {
@@ -33,7 +34,13 @@ function AppContent({ session }) {
   return (
     <NavigationContainer theme={navTheme}>
       <StatusBar style={dark ? 'light' : 'dark'} />
-      {session ? <TabNavigator /> : <AuthNavigator />}
+      {session ? (
+        <DataProvider>
+          <TabNavigator />
+        </DataProvider>
+      ) : (
+        <AuthNavigator />
+      )}
       <Animated.View
         style={[StyleSheet.absoluteFill, { backgroundColor: overlayBg, opacity: fadeAnim }]}
         pointerEvents="none"

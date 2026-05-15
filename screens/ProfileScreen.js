@@ -1,285 +1,53 @@
-import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   ActivityIndicator, TextInput, Modal, Image, Switch, Alert,
-  Animated, Dimensions,
+  Dimensions,
 } from 'react-native';
 import { LineChart, BarChart } from 'react-native-chart-kit';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
-import { getSessions } from '../lib/sessions';
-import { getCompletedChallenges } from '../lib/challenges';
 import { getSettings, saveSettings } from '../lib/settings';
-import { CHALLENGES } from '../data/challenges';
-import { BADGES } from '../data/badges';
+import { BADGES } from '../constants/badges';
 import { useTheme, DARK } from '../lib/theme';
+import { STATS, prepareChartData } from '../lib/chartHelpers';
+import { useData } from '../lib/DataContext';
+import { getBadgeStats } from '../lib/badgeStats';
+import StreakCard from '../components/StreakCard';
+import ActivityCalendar from '../components/ActivityCalendar';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const CHART_W = SCREEN_W - 32;
 
-// ─── Level system ─────────────────────────────────────────────────────────────
-const LEVELS = [
-  { threshold: 0,   title: 'Wallflower',    color: '#94A3B8', cardBg: '#0F172A' },
-  { threshold: 50,  title: 'Ice Breaker',   color: '#60A5FA', cardBg: '#080F1E' },
-  { threshold: 150, title: 'Explorer',      color: '#34D399', cardBg: '#041510' },
-  { threshold: 300, title: 'Connector',     color: '#A78BFA', cardBg: '#100820' },
-  { threshold: 500, title: 'Champion',      color: '#F59E0B', cardBg: '#160E00' },
-  { threshold: 750, title: 'Social Master', color: '#F43F5E', cardBg: '#160306' },
-];
-
-function getLevel(xp) {
-  let level = LEVELS[0];
-  for (const l of LEVELS) { if (xp >= l.threshold) level = l; }
-  const idx    = LEVELS.indexOf(level);
-  const next   = LEVELS[idx + 1] ?? null;
-  const toNext = next ? next.threshold - level.threshold : 1;
-  return { ...level, index: idx, next, progress: Math.min((xp - level.threshold) / toNext, 1) };
-}
-
-// ─── Chart helpers ────────────────────────────────────────────────────────────
-const STATS = [
-  { key: 'avg_confidence',       label: 'Confidence',      color: '#3B82F6' },
-  { key: 'avg_clarity',          label: 'Clarity',         color: '#10B981' },
-  { key: 'avg_energy',           label: 'Energy',          color: '#F59E0B' },
-  { key: 'avg_specificity',      label: 'Specificity',     color: '#8B5CF6' },
-  { key: 'avg_active_listening', label: 'Active Listening', color: '#EC4899' },
-  { key: 'grade',                label: 'Grade',           color: '#6366F1' },
-];
-
-const GRADE_NUM = {
-  'A+': 10, 'A': 9.5, 'A-': 9,
-  'B+': 8.5, 'B': 8, 'B-': 7.5,
-  'C+': 7, 'C': 6.5, 'C-': 6,
-  'D+': 5.5, 'D': 5, 'D-': 4.5, 'F': 3,
-};
-
-function getVal(session, key) {
-  if (key === 'grade') return GRADE_NUM[session.grade] ?? null;
-  return session[key] ?? null;
-}
-
-function prepareChartData(sessions, statKey, limit = 20) {
-  const ordered = [...sessions].reverse();
-  const valid = ordered
-    .map(s => ({ val: getVal(s, statKey), date: s.created_at.slice(0, 10) }))
-    .filter(x => x.val !== null)
-    .slice(-limit);
-  if (valid.length < 2) return null;
-  const showEvery = Math.max(1, Math.floor(valid.length / 5));
-  const labels = valid.map((x, i) => {
-    if (i % showEvery === 0 || i === valid.length - 1) {
-      const d = new Date(x.date + 'T12:00:00');
-      return `${d.getMonth() + 1}/${d.getDate()}`;
-    }
-    return '';
-  });
-  return { labels, datasets: [{ data: valid.map(x => x.val) }] };
-}
-
-// ─── Streak helpers ───────────────────────────────────────────────────────────
-function calcStreaks(sessions) {
-  if (!sessions.length) return { current: 0, longest: 0 };
-  const days  = new Set(sessions.map(s => s.created_at.slice(0, 10)));
-  const now   = new Date();
-  const today = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
-  const localStr = dt => `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
-
-  let current = 0;
-  const d = new Date();
-  if (!days.has(today)) d.setDate(d.getDate() - 1);
-  while (days.has(localStr(d))) { current++; d.setDate(d.getDate() - 1); }
-
-  let longest = 0, streak = 0, prev = null;
-  for (const day of Array.from(days).sort()) {
-    const cur = new Date(day + 'T12:00:00');
-    streak = prev && Math.round((cur - prev) / 86400000) === 1 ? streak + 1 : 1;
-    if (streak > longest) longest = streak;
-    prev = cur;
-  }
-  return { current, longest };
-}
-
-function streakColor(n) {
-  if (n === 0) return '#94A3B8';
-  if (n < 3)   return '#FB923C';
-  if (n < 7)   return '#F97316';
-  if (n < 14)  return '#EF4444';
-  if (n < 30)  return '#DC2626';
-  return '#7F1D1D';
-}
-
-const WEEK_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
-
-function StreakCard({ currentStreak, sessions, C, dark }) {
-  const fire   = streakColor(currentStreak);
-  const pulse  = useRef(new Animated.Value(1)).current;
-  const wiggle = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    if (currentStreak === 0) return;
-    Animated.parallel([
-      Animated.sequence([
-        Animated.timing(pulse,  { toValue: 1.3, duration: 420, useNativeDriver: true }),
-        Animated.timing(pulse,  { toValue: 1,   duration: 480, useNativeDriver: true }),
-      ]),
-      Animated.sequence([
-        Animated.timing(wiggle, { toValue:  1,   duration: 220, useNativeDriver: true }),
-        Animated.timing(wiggle, { toValue: -1,   duration: 220, useNativeDriver: true }),
-        Animated.timing(wiggle, { toValue:  0.5, duration: 180, useNativeDriver: true }),
-        Animated.timing(wiggle, { toValue:  0,   duration: 180, useNativeDriver: true }),
-      ]),
-    ]).start();
-  }, []);
-
-  const rotate = wiggle.interpolate({ inputRange: [-1, 1], outputRange: ['-6deg', '6deg'] });
-
-  const sessionDays = useMemo(() => new Set(sessions.map(s => s.created_at.slice(0, 10))), [sessions]);
-  const today    = new Date();
-  const todayDow = today.getDay();
-  const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
-
-  const week = WEEK_LABELS.map((label, i) => {
-    const dd = new Date(today);
-    dd.setDate(today.getDate() - todayDow + i);
-    const dateStr = `${dd.getFullYear()}-${String(dd.getMonth()+1).padStart(2,'0')}-${String(dd.getDate()).padStart(2,'0')}`;
-    return { label, dateStr, isToday: dateStr === todayStr, isFuture: i > todayDow };
-  });
-
-  return (
-    <View style={{ flex: 1, backgroundColor: C.card, borderRadius: 18, padding: 14,
-      alignItems: 'center', justifyContent: 'center', gap: 2,
-      shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 6, elevation: 2,
-    }}>
-      <Animated.View style={{ alignItems: 'center', justifyContent: 'center', marginBottom: 2, transform: [{ scale: pulse }, { rotate }] }}>
-        <Ionicons name="flame" size={22} color={fire + '44'} style={{ position: 'absolute', top: 6 }} />
-        <Ionicons name="flame" size={44} color={fire} />
-      </Animated.View>
-      <Text style={{ fontSize: 36, fontWeight: '900', color: C.text, lineHeight: 40 }}>{currentStreak}</Text>
-      <Text style={{ fontSize: 11, fontWeight: '700', color: fire, marginBottom: 8 }}>day streak</Text>
-      <View style={{ width: '100%', backgroundColor: dark ? '#0F172A' : '#F1F5F9', borderRadius: 12, padding: 8 }}>
-        <View style={{ flexDirection: 'row', marginBottom: 5 }}>
-          {week.map(({ label, isToday }) => (
-            <Text key={label} style={{ fontSize: 8, fontWeight: '700', textAlign: 'center', flex: 1,
-              color: isToday ? fire : C.textMuted }}>
-              {label}
-            </Text>
-          ))}
-        </View>
-        <View style={{ flexDirection: 'row', gap: 3 }}>
-          {week.map(({ dateStr, isToday }) => {
-            const done = sessionDays.has(dateStr);
-            return (
-              <View key={dateStr} style={{ flex: 1, aspectRatio: 1, borderRadius: 6,
-                backgroundColor: done ? fire : (dark ? '#1E293B' : '#E2E8F0'),
-                borderWidth: isToday && !done ? 1.5 : 0,
-                borderColor: fire,
-                alignItems: 'center', justifyContent: 'center',
-              }}>
-                {done && <Ionicons name="checkmark" size={10} color="#fff" />}
-              </View>
-            );
-          })}
-        </View>
-      </View>
-    </View>
-  );
-}
-
-// ─── Activity calendar ────────────────────────────────────────────────────────
-const DAY_HEADERS = ['S', 'M', 'T', 'W', 'TH', 'F', 'S'];
-const CAL_GAP  = 4;
-const CAL_HALF = Math.floor((SCREEN_W - 64 - 16) / 2);
-const CELL     = Math.floor((CAL_HALF - 6 * CAL_GAP) / 7);
-
-function ActivityCalendar({ sessions, C, dark }) {
-  const activeDays = useMemo(() => {
-    const set = new Set();
-    sessions.forEach(s => set.add(s.created_at.slice(0, 10)));
-    return set;
-  }, [sessions]);
-
-  const today       = new Date();
-  const year        = today.getFullYear();
-  const month       = today.getMonth();
-  const todayStr    = `${year}-${String(month+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
-  const todayDow    = today.getDay();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const firstDow    = new Date(year, month, 1).getDay();
-
-  const cells = [
-    ...Array.from({ length: firstDow }, () => null),
-    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
-  ];
-  while (cells.length % 7 !== 0) cells.push(null);
-  const weeks = Array.from({ length: cells.length / 7 }, (_, i) => cells.slice(i * 7, i * 7 + 7));
-
-  return (
-    <View style={{ width: CAL_HALF }}>
-      <View style={{ flexDirection: 'row', gap: CAL_GAP, marginBottom: 6 }}>
-        {DAY_HEADERS.map((h, i) => (
-          <View key={i} style={{ width: CELL, alignItems: 'center' }}>
-            <Text style={{ fontSize: 9, fontWeight: '700', color: i === todayDow ? '#22C55E' : C.textMuted }}>{h}</Text>
-          </View>
-        ))}
-      </View>
-      <View style={{ gap: CAL_GAP }}>
-        {weeks.map((week, rowIdx) => (
-          <View key={rowIdx} style={{ flexDirection: 'row', gap: CAL_GAP }}>
-            {week.map((day, colIdx) => {
-              if (day === null) return <View key={colIdx} style={{ width: CELL, height: CELL }} />;
-              const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
-              const active  = activeDays.has(dateStr);
-              const isToday = dateStr === todayStr;
-              return (
-                <View key={colIdx} style={{
-                  width: CELL, height: CELL, borderRadius: 4,
-                  backgroundColor: active ? '#22C55E' : (dark ? 'rgba(34,197,94,0.12)' : '#DCFCE7'),
-                  borderWidth: isToday ? 2 : 0,
-                  borderColor: '#22C55E',
-                }} />
-              );
-            })}
-          </View>
-        ))}
-      </View>
-    </View>
-  );
-}
-
 // ─── Main component ───────────────────────────────────────────────────────────
 export default function ProfileScreen() {
   const { dark, setDark, useSystem, setUseSystem, colors: C } = useTheme();
+  const { sessions, completedIds, totalXP, levelInfo, currentStreak, loading: dataLoading } = useData();
 
-  const [sessions,      setSessions]      = useState([]);
-  const [completedIds,  setCompletedIds]  = useState(new Set());
-  const [loading,       setLoading]       = useState(true);
-  const [displayName,   setDisplayName]   = useState('');
-  const [email,         setEmail]         = useState('');
-  const [avatarUri,     setAvatarUri]     = useState(null);
-  const [editingName,   setEditingName]   = useState(false);
-  const [nameInput,     setNameInput]     = useState('');
-  const [selectedStat,  setSelectedStat]  = useState('avg_confidence');
-  const [chartType,     setChartType]     = useState('line');
-  const [settings,      setSettings]      = useState({ practiceReminders: false, hapticFeedback: true });
+  const [profileLoading, setProfileLoading] = useState(true);
+  const [displayName,    setDisplayName]    = useState('');
+  const [email,          setEmail]          = useState('');
+  const [avatarUri,      setAvatarUri]      = useState(null);
+  const [editingName,    setEditingName]    = useState(false);
+  const [nameInput,      setNameInput]      = useState('');
+  const [selectedStat,   setSelectedStat]   = useState('avg_confidence');
+  const [chartType,      setChartType]      = useState('line');
+  const [settings,       setSettings]       = useState({ practiceReminders: false, hapticFeedback: true });
 
-  useFocusEffect(useCallback(() => { load(); }, []));
+  useFocusEffect(useCallback(() => { loadProfile(); }, []));
 
-  async function load() {
-    setLoading(true);
-    const [{ data: { user } }, sess, chal, storedName, storedAvatar, settingsData] = await Promise.all([
+  async function loadProfile() {
+    setProfileLoading(true);
+    const [{ data: { user } }, storedName, storedAvatar, settingsData] = await Promise.all([
       supabase.auth.getUser(),
-      getSessions(),
-      getCompletedChallenges(),
       AsyncStorage.getItem('profile_display_name'),
       AsyncStorage.getItem('profile_avatar_uri'),
       getSettings(),
     ]);
 
-    setSessions(sess);
-    setCompletedIds(new Set(chal.map(c => c.challenge_id)));
     setEmail(user?.email ?? '');
     if (storedAvatar) setAvatarUri(storedAvatar);
     if (settingsData) setSettings(settingsData);
@@ -289,7 +57,7 @@ export default function ProfileScreen() {
       || user?.email?.split('@')[0]
       || 'You';
     setDisplayName(name);
-    setLoading(false);
+    setProfileLoading(false);
   }
 
   async function pickAvatar() {
@@ -330,10 +98,6 @@ export default function ProfileScreen() {
     if (error) Alert.alert('Sign out failed', error.message);
   }
 
-  const totalXP  = useMemo(() => CHALLENGES.filter(c => completedIds.has(c.id)).reduce((s, c) => s + c.xp, 0), [completedIds]);
-  const levelInfo = useMemo(() => getLevel(totalXP), [totalXP]);
-  const { current: currentStreak } = useMemo(() => calcStreaks(sessions), [sessions]);
-
   const chartData  = useMemo(() => prepareChartData(sessions, selectedStat), [sessions, selectedStat]);
   const activeStat = STATS.find(s => s.key === selectedStat);
 
@@ -353,24 +117,13 @@ export default function ProfileScreen() {
     };
   }, [C, activeStat, dark]);
 
-  const badgeStats = useMemo(() => {
-    const byDiff = d => CHALLENGES.filter(c => c.difficulty === d);
-    return {
-      sessions, streak: currentStreak,
-      completedCount: completedIds.size, totalChallenges: CHALLENGES.length,
-      easyDone:   byDiff('Easy').filter(c => completedIds.has(c.id)).length,
-      easyTotal:  byDiff('Easy').length,
-      mediumDone: byDiff('Medium').filter(c => completedIds.has(c.id)).length,
-      mediumTotal: byDiff('Medium').length,
-      hardDone:   byDiff('Hard').filter(c => completedIds.has(c.id)).length,
-      hardTotal:  byDiff('Hard').length,
-      levelIndex: levelInfo.index,
-    };
-  }, [sessions, completedIds, currentStreak, levelInfo]);
+  const badgeStats = useMemo(() => getBadgeStats({
+    sessions, completedIds, streak: currentStreak, levelIndex: levelInfo.index,
+  }), [sessions, completedIds, currentStreak, levelInfo.index]);
 
   const initials = displayName.split(' ').slice(0, 2).map(w => w[0] ?? '').join('').toUpperCase() || '?';
 
-  if (loading) {
+  if (profileLoading || dataLoading) {
     return <View style={[S.center, { backgroundColor: C.bg }]}><ActivityIndicator size="large" color={C.accent} /></View>;
   }
 
@@ -443,9 +196,9 @@ export default function ProfileScreen() {
       <Text style={[S.section, { color: C.textMuted, paddingHorizontal: 16, marginTop: 24 }]}>ACTIVITY</Text>
       <View style={{ flexDirection: 'row', gap: 10, paddingHorizontal: 16, alignItems: 'stretch' }}>
         <View style={[S.card, { backgroundColor: C.card, marginBottom: 0 }]}>
-          <ActivityCalendar sessions={sessions} C={C} dark={dark} />
+          <ActivityCalendar sessions={sessions} />
         </View>
-        <StreakCard currentStreak={currentStreak} sessions={sessions} C={C} dark={dark} />
+        <StreakCard currentStreak={currentStreak} sessions={sessions} />
       </View>
 
       {/* ── Performance chart ─────────────────────────────────────────────── */}

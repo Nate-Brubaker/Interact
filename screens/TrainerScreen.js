@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+﻿import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, Switch,
   ActivityIndicator, Animated, Alert, SafeAreaView, Easing, Modal, PanResponder, Image,
@@ -16,7 +16,8 @@ import * as Haptics from 'expo-haptics';
 import { getSettings, saveSettings, INPUT_MODES, INTENSITIES, LANGUAGES, SESSION_LENGTHS, FOCUS_AREAS } from '../lib/settings';
 import { useTheme, DARK } from '../lib/theme';
 import { getProfile, calculateAge } from '../lib/profile';
-import { saveSession, getSessions } from '../lib/sessions';
+import { saveSession } from '../lib/api';
+import { useData } from '../lib/DataContext';
 
 const WAV_RECORDING_OPTIONS = {
   extension: '.wav',
@@ -58,24 +59,24 @@ const FIRST_MEETING_SCENARIOS = new Set(['networking', 'small_talk', 'new_friend
 
 function getRolePrompt(id) {
   return {
-    job_interview: `You are Marcus, a senior engineering manager at a mid-size tech company. You've interviewed hundreds of candidates and have little patience for vague, rehearsed, or buzzword-heavy answers. You're not mean, but you're direct — if an answer is weak you say so. You interrupt or redirect if someone starts rambling. You have high standards and the candidate needs to earn your respect.`,
-    first_date:    `You are Jamie, on a first date at a coffee shop. You're genuinely interested but not a pushover — if the conversation gets boring or one-sided you'll say so. You're witty, a little sarcastic, and quick to call out awkward silences or weird comments. You want the date to go well but you're not going to fake it.`,
-    networking:    `You are Dana, a product director at a startup. You're at a networking event and have about five minutes before you need to move on. You're friendly but busy — if someone is wasting your time with small talk you'll steer it somewhere useful. You respect people who are direct and know what they want.`,
-    small_talk:    `You are a regular person — let's say Alex — waiting in line or sitting nearby somewhere. You're open to chatting but have normal human reactions: if someone is weird or dull you'll give short answers and mentally check out. If the conversation is good you'll open up.`,
-    new_friends:   `You are Sam, meeting someone new at a friend's party. You're warm but not a golden retriever — you won't just agree with everything. If someone is being awkward or weird you'll notice and react like a normal person would. You want to actually connect, not just exchange pleasantries.`,
-    difficult:     `You are a colleague named Chris who needs to have a hard conversation — maybe about a missed deadline, a conflict, or a performance issue. You stay calm but you're firm. You don't accept non-answers or deflection. If the other person tries to dodge the issue or gets defensive, you push back clearly.`,
-  }[id] ?? 'You are having a casual conversation. Be a real human — imperfect, direct, and honest.';
+    job_interview: `You are Marcus, a senior engineering manager at a mid-size tech company. You've interviewed hundreds of candidates and have little patience for vague, rehearsed, or buzzword-heavy answers. You're not mean, but you're direct - if an answer is weak you say so. You interrupt or redirect if someone starts rambling. You have high standards and the candidate needs to earn your respect.`,
+    first_date:    `You are Jamie, on a first date at a coffee shop. You're genuinely interested but not a pushover - if the conversation gets boring or one-sided you'll say so. You're witty, a little sarcastic, and quick to call out awkward silences or weird comments. You want the date to go well but you're not going to fake it.`,
+    networking:    `You are Dana, a product director at a startup. You're at a networking event and have about five minutes before you need to move on. You're friendly but busy - if someone is wasting your time with small talk you'll steer it somewhere useful. You respect people who are direct and know what they want.`,
+    small_talk:    `You are a regular person - let's say Alex - waiting in line or sitting nearby somewhere. You're open to chatting but have normal human reactions: if someone is weird or dull you'll give short answers and mentally check out. If the conversation is good you'll open up.`,
+    new_friends:   `You are Sam, meeting someone new at a friend's party. You're warm but not a golden retriever - you won't just agree with everything. If someone is being awkward or weird you'll notice and react like a normal person would. You want to actually connect, not just exchange pleasantries.`,
+    difficult:     `You are a colleague named Chris who needs to have a hard conversation - maybe about a missed deadline, a conflict, or a performance issue. You stay calm but you're firm. You don't accept non-answers or deflection. If the other person tries to dodge the issue or gets defensive, you push back clearly.`,
+  }[id] ?? 'You are having a casual conversation. Be a real human - imperfect, direct, and honest.';
 }
 
 function buildProfileContext(scenarioId, profile) {
   if (!profile) return '';
   if (FIRST_MEETING_SCENARIOS.has(scenarioId)) {
-    return `\nYou don't know this person's name yet — ask for it naturally early in the conversation if the opportunity arises. Do NOT use "[Name]" or any placeholder.`;
+    return `\nYou don't know this person's name yet - ask for it naturally early in the conversation if the opportunity arises. Do NOT use "[Name]" or any placeholder.`;
   }
   if (!profile.firstName) return '';
   const age = calculateAge(profile.dob);
   const name = [profile.firstName, profile.lastName].filter(Boolean).join(' ');
-  return `\nThe person you're speaking with is ${name}${age ? `, ${age} years old` : ''}. Use their name naturally where it fits — don't overdo it.`;
+  return `\nThe person you're speaking with is ${name}${age ? `, ${age} years old` : ''}. Use their name naturally where it fits - don't overdo it.`;
 }
 
 function buildBehaviorContext(settings) {
@@ -88,9 +89,9 @@ function buildBehaviorContext(settings) {
   } else if (intensity === INTENSITIES.STANDARD) {
     ctx += '\nHave balanced standards. Call out weak or vague answers directly without sugarcoating.';
   } else if (intensity === INTENSITIES.CHALLENGING) {
-    ctx += '\nBe extremely critical and demanding. Aggressively challenge every weak or vague answer — do not let anything slide. Call out weaknesses directly.';
+    ctx += '\nBe extremely critical and demanding. Aggressively challenge every weak or vague answer - do not let anything slide. Call out weaknesses directly.';
   } else if (intensity === INTENSITIES.REALISTIC) {
-    ctx += '\nBe extremely demanding with very high standards. React completely naturally — no coaching commentary whatsoever. Just be the person in this scenario, a tough one.';
+    ctx += '\nBe extremely demanding with very high standards. React completely naturally - no coaching commentary whatsoever. Just be the person in this scenario, a tough one.';
   }
 
   if (settings.language === LANGUAGES.SPANISH) {
@@ -149,7 +150,7 @@ async function getOpeningLine(scenarioId, profile, settings) {
   const system = getRolePrompt(scenarioId) + buildProfileContext(scenarioId, profile) + buildBehaviorContext(settings);
   const data = await fetchGPT([
     { role: 'system', content: system },
-    { role: 'user',   content: 'Open the conversation naturally in 1-2 sentences. Sound like a real person — not scripted. End with a direct question so the other person knows what to respond to. Reply with only that opening.' },
+    { role: 'user',   content: 'Open the conversation naturally in 1-2 sentences. Sound like a real person - not scripted. End with a direct question so the other person knows what to respond to. Reply with only that opening.' },
   ], 'gpt-4o', 120);
   return data.choices[0].message.content.trim();
 }
@@ -159,13 +160,13 @@ async function processAudioTurn(base64Audio, ext, scenarioId, history, profile, 
 
 Stay in character at all times. You are also secretly scoring the user's speech delivery.
 
-Return a JSON object with EXACTLY these fields — no extra fields, no prose outside the JSON:
+Return a JSON object with EXACTLY these fields - no extra fields, no prose outside the JSON:
 - "unclear": true ONLY if the audio is physically inaudible or totally unintelligible. If you can make out any words, set this to false. If true, all other fields are null.
 - "endConversation": true if the user is being offensive/rude to you, OR if they are clearly not engaging (repeating one word, saying random letters, gibberish, one-syllable non-answers two turns in a row). If true, write a short in-character goodbye that fits the situation and set analysis fields to null.
-- "reply": Respond as your character — a real, specific human, not a generic assistant. Use contractions, incomplete thoughts, natural reactions. React to what they ACTUALLY said — don't be generic. If their answer is weak, vague, or off-topic, say so bluntly. If it's good, acknowledge it briefly then push further. Do NOT be encouraging for bad answers. Do NOT always end with a question — sometimes a short reaction is enough and a follow-up comes naturally. Vary your sentence length. (null if unclear)
+- "reply": Respond as your character - a real, specific human, not a generic assistant. Use contractions, incomplete thoughts, natural reactions. React to what they ACTUALLY said - don't be generic. If their answer is weak, vague, or off-topic, say so bluntly. If it's good, acknowledge it briefly then push further. Do NOT be encouraging for bad answers. Do NOT always end with a question - sometimes a short reaction is enough and a follow-up comes naturally. Vary your sentence length. (null if unclear)
 - "userTranscript": exact verbatim transcription of what the user said (null if unclear)
 - "userSummary": 6-10 word summary of what the user said (null if unclear)
-- "analysis": { "fillerWords": [array of filler words used], "pace": "too fast"|"good"|"too slow", "confidence": 1-10, "confidenceNote": "one sentence — why this confidence score, quote specific words or tone", "clarity": 1-10, "clarityNote": "one sentence — why this clarity score, e.g. mumbling, trailing off, clear articulation", "energy": 1-10, "energyNote": "one sentence — why this energy score, reference their vocal tone/pace/engagement", "specificity": 1-10, "specificityNote": "one sentence — why this specificity score, quote or reference what was vague or specific", "activeListening": 1-10, "activeListeningNote": "one sentence — did they respond to what was actually asked or give a generic answer, be specific" } (null if unclear)
+- "analysis": { "fillerWords": [array of filler words used], "pace": "too fast"|"good"|"too slow", "confidence": 1-10, "confidenceNote": "one sentence - why this confidence score, quote specific words or tone", "clarity": 1-10, "clarityNote": "one sentence - why this clarity score, e.g. mumbling, trailing off, clear articulation", "energy": 1-10, "energyNote": "one sentence - why this energy score, reference their vocal tone/pace/engagement", "specificity": 1-10, "specificityNote": "one sentence - why this specificity score, quote or reference what was vague or specific", "activeListening": 1-10, "activeListeningNote": "one sentence - did they respond to what was actually asked or give a generic answer, be specific" } (null if unclear)
 
 Return ONLY valid JSON. No extra text.`;
 
@@ -217,7 +218,7 @@ async function generateStats(scenarioId, analyses) {
             responseTimeMs:     a?.responseTimeMs ?? null,
             userSummary:        typeof a?.userSummary === 'string' ? a.userSummary : null,
           }))) +
-          `\n\nEach turn may include "responseTimeMs" — ms the user took to respond after the AI finished. ` +
+          `\n\nEach turn may include "responseTimeMs" - ms the user took to respond after the AI finished. ` +
           `Under 3000ms = quick, 3000-6000ms = normal, over 6000ms = slow.\n\n` +
           `Return a JSON object with:\n` +
           `- "grade": letter grade A+ to F\n` +
@@ -226,13 +227,13 @@ async function generateStats(scenarioId, analyses) {
           `- "topFillers": top 2-3 filler words as a string (e.g. "um, like")\n` +
           `- "pace": overall pace summary string\n` +
           `- "avgConfidence": number 1-10 rounded to 1 decimal\n` +
-          `- "avgClarity": number 1-10 rounded to 1 decimal — how clear and easy to understand\n` +
-          `- "avgEnergy": number 1-10 rounded to 1 decimal — vocal engagement, not monotone\n` +
-          `- "avgSpecificity": number 1-10 rounded to 1 decimal — concrete examples vs vague answers\n` +
-          `- "avgActiveListening": number 1-10 rounded to 1 decimal — responded to what was actually said vs generic answers\n` +
-          `- "firstImpression": number 1-10 — strength of the user's very first response only\n` +
-          `- "firstImpressionNote": one sentence — specific reasoning for the firstImpression score, reference what they actually said in turn 1\n` +
-          `- "statBreakdowns": object with keys "confidence","clarity","energy","specificity","activeListening","firstImpression". Each value is an array of 1-3 NOTABLE moments only — skip average/unremarkable turns. Each item: { "moment": "specific description of what happened and why it affected the score", "quality": "good"|"poor", "suggestion": "a better alternative phrase they could have used — ONLY include this field for poor word-choice moments, omit otherwise" }\n` +
+          `- "avgClarity": number 1-10 rounded to 1 decimal - how clear and easy to understand\n` +
+          `- "avgEnergy": number 1-10 rounded to 1 decimal - vocal engagement, not monotone\n` +
+          `- "avgSpecificity": number 1-10 rounded to 1 decimal - concrete examples vs vague answers\n` +
+          `- "avgActiveListening": number 1-10 rounded to 1 decimal - responded to what was actually said vs generic answers\n` +
+          `- "firstImpression": number 1-10 - strength of the user's very first response only\n` +
+          `- "firstImpressionNote": one sentence - specific reasoning for the firstImpression score, reference what they actually said in turn 1\n` +
+          `- "statBreakdowns": object with keys "confidence","clarity","energy","specificity","activeListening","firstImpression". Each value is an array of 1-3 NOTABLE moments only - skip average/unremarkable turns. Each item: { "moment": "specific description of what happened and why it affected the score", "quality": "good"|"poor", "suggestion": "a better alternative phrase they could have used - ONLY include this field for poor word-choice moments, omit otherwise" }\n` +
           `- "avgResponseTime": average response time in seconds (1 decimal), or null if no data\n` +
           `- "responsivenessNote": one sentence about how quickly they responded\n` +
           `- "strongestMoment": string\n` +
@@ -421,7 +422,7 @@ export default function TrainerScreen() {
   const [fillerCount, setFillerCount] = useState(0);
   const [trainSettingsOpen, setTrainSettingsOpen] = useState(false);
   const [trainSettings, setTrainSettings] = useState(null);
-  const [recentSessions, setRecentSessions] = useState([]);
+  const { sessions: recentSessions, reload: reloadData } = useData();
   const [sessionDetailOpen, setSessionDetailOpen] = useState(false);
   const [sessionDetailData, setSessionDetailData] = useState(null);
 
@@ -536,9 +537,7 @@ export default function TrainerScreen() {
   // Load recent sessions whenever selecting screen is shown
   useEffect(() => {
     if (phase === 'selecting') {
-      getSessions()
-        .then(data => { console.log('sessions loaded:', data.length); setRecentSessions(data); })
-        .catch(e => console.error('getSessions:', e));
+      reloadData();
     }
   }, [phase]);
 
@@ -600,7 +599,7 @@ export default function TrainerScreen() {
     }
     if (speechDetectedRef.current) {
       if (db < SILENCE_DB) {
-        // Don't trigger silence stop until user has spoken for at least MIN_SPEECH_MS —
+        // Don't trigger silence stop until user has spoken for at least MIN_SPEECH_MS -
         // prevents a brief noise from immediately stopping the recording
         const spokenMs = speechStartRef.current ? Date.now() - speechStartRef.current : 0;
         if (spokenMs < MIN_SPEECH_MS) return;
@@ -635,7 +634,7 @@ export default function TrainerScreen() {
     return () => clearInterval(countdownTimerRef.current);
   }, [recStatus, inputMode]);
 
-  // Response timer (mode 3) — counts up while user is idle after seeing AI text
+  // Response timer (mode 3) - counts up while user is idle after seeing AI text
   useEffect(() => {
     clearInterval(responseTimerRef.current);
     if (inputMode !== INPUT_MODES.PUSH_TO_SPEAK || phase !== 'conversation' || recStatus !== 'idle') {
@@ -751,20 +750,20 @@ export default function TrainerScreen() {
 
             <ScrollView showsVerticalScrollIndicator={false} style={{ backgroundColor: C.bg }} contentContainerStyle={[S.statsContent, { paddingTop: 8 }]}>
               <View style={[S.gradeCircle, { borderColor: gc }]}>
-                <Text style={[S.gradeText, { color: gc }]}>{grade ?? '—'}</Text>
+                <Text style={[S.gradeText, { color: gc }]}>{grade ?? '-'}</Text>
               </View>
               {sd.gradeDesc ? <Text style={S.gradeDesc}>{sd.gradeDesc}</Text> : null}
 
               {[
                 [
-                  { key: 'confidence',      value: sesh.avg_confidence       ?? '—', label: 'Confidence' },
-                  { key: 'clarity',         value: sesh.avg_clarity          ?? '—', label: 'Clarity' },
-                  { key: 'energy',          value: sesh.avg_energy           ?? '—', label: 'Energy' },
+                  { key: 'confidence',      value: sesh.avg_confidence       ?? '-', label: 'Confidence' },
+                  { key: 'clarity',         value: sesh.avg_clarity          ?? '-', label: 'Clarity' },
+                  { key: 'energy',          value: sesh.avg_energy           ?? '-', label: 'Energy' },
                 ],
                 [
-                  { key: 'specificity',     value: sesh.avg_specificity      ?? '—', label: 'Specificity' },
-                  { key: 'activeListening', value: sesh.avg_active_listening ?? '—', label: 'Active Listening' },
-                  { key: 'firstImpression', value: sd.firstImpression        ?? '—', label: 'First Impression' },
+                  { key: 'specificity',     value: sesh.avg_specificity      ?? '-', label: 'Specificity' },
+                  { key: 'activeListening', value: sesh.avg_active_listening ?? '-', label: 'Active Listening' },
+                  { key: 'firstImpression', value: sd.firstImpression        ?? '-', label: 'First Impression' },
                 ],
               ].map((row, ri) => (
                 <View key={ri} style={S.statsGrid}>
@@ -939,7 +938,7 @@ export default function TrainerScreen() {
                   <TSRadio
                     label="INPUT MODE"
                     options={[
-                      { id: INPUT_MODES.AUTO_VAD,       label: 'Auto — Silence Detection', badge: 'Default' },
+                      { id: INPUT_MODES.AUTO_VAD,       label: 'Auto - Silence Detection', badge: 'Default' },
                       { id: INPUT_MODES.AUTO_COUNTDOWN, label: 'Auto-start + Countdown' },
                       { id: INPUT_MODES.PUSH_TO_SPEAK,  label: 'Push to Speak' },
                     ]}
@@ -1127,7 +1126,7 @@ export default function TrainerScreen() {
       const result = await processAudioTurn(base64Audio, ext, scenario.id, gptHistory, profileRef.current, settingsRef.current);
 
       if (result.unclear) {
-        setMessages(prev => [...prev, { role: 'info', text: "Couldn't hear that clearly — please speak up and try again." }]);
+        setMessages(prev => [...prev, { role: 'info', text: "Couldn't hear that clearly - please speak up and try again." }]);
         setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
         setRecStatus('idle');
         if (inputModeRef.current === INPUT_MODES.AUTO_VAD ||
@@ -1214,7 +1213,7 @@ export default function TrainerScreen() {
         scenarioLabel: scenario.label,
         turnCount:     turnCountRef.current,
         stats:         result,
-      }).catch(e => Alert.alert('Session not saved', e?.message ?? String(e)));
+      }).then(() => reloadData()).catch(e => Alert.alert('Session not saved', e?.message ?? String(e)));
     } catch (e) {
       Alert.alert('Could not generate stats', e.message);
       setPhase('selecting');
@@ -1305,7 +1304,7 @@ export default function TrainerScreen() {
                       <View style={S.recentTop}>
                         <Text style={S.recentScenario}>{session.scenario_label}</Text>
                         <View style={[S.recentGradeBadge, { backgroundColor: gc + '18' }]}>
-                          <Text style={[S.recentGradeText, { color: gc }]}>{session.grade ?? '—'}</Text>
+                          <Text style={[S.recentGradeText, { color: gc }]}>{session.grade ?? '-'}</Text>
                         </View>
                         <Text style={S.recentDate}>{formatDate(session.created_at)}</Text>
                       </View>
@@ -1364,14 +1363,14 @@ export default function TrainerScreen() {
 
         {[
           [
-            { key: 'confidence',      value: stats.avgConfidence ?? '—',      label: 'Confidence' },
-            { key: 'clarity',         value: stats.avgClarity ?? '—',         label: 'Clarity' },
-            { key: 'energy',          value: stats.avgEnergy ?? '—',          label: 'Energy' },
+            { key: 'confidence',      value: stats.avgConfidence ?? '-',      label: 'Confidence' },
+            { key: 'clarity',         value: stats.avgClarity ?? '-',         label: 'Clarity' },
+            { key: 'energy',          value: stats.avgEnergy ?? '-',          label: 'Energy' },
           ],
           [
-            { key: 'specificity',     value: stats.avgSpecificity ?? '—',     label: 'Specificity' },
-            { key: 'activeListening', value: stats.avgActiveListening ?? '—', label: 'Active Listening' },
-            { key: 'firstImpression', value: stats.firstImpression ?? '—',    label: 'First Impression' },
+            { key: 'specificity',     value: stats.avgSpecificity ?? '-',     label: 'Specificity' },
+            { key: 'activeListening', value: stats.avgActiveListening ?? '-', label: 'Active Listening' },
+            { key: 'firstImpression', value: stats.firstImpression ?? '-',    label: 'First Impression' },
           ],
         ].map((row, ri) => (
           <Animated.View key={ri} style={[S.statsGrid, sa(ri)]}>

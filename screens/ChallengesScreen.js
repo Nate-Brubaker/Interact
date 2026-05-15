@@ -1,37 +1,19 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, ActivityIndicator, Animated, LayoutAnimation,
   UIManager, Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import { supabase } from '../lib/supabase';
-import { CHALLENGES } from '../data/challenges';
+import { useNavigation } from '@react-navigation/native';
+import { CHALLENGES } from '../constants/challenges';
 import { useTheme } from '../lib/theme';
+import { LEVELS, getLevel } from '../lib/levels';
+import { markChallengeComplete } from '../lib/api';
+import { useData } from '../lib/DataContext';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
-}
-
-// ─── XP level system ─────────────────────────────────────────────────────────
-const LEVELS = [
-  { threshold: 0,   title: 'Wallflower',    color: '#94A3B8', cardBg: '#0F172A' },
-  { threshold: 50,  title: 'Ice Breaker',   color: '#60A5FA', cardBg: '#080F1E' },
-  { threshold: 150, title: 'Explorer',      color: '#34D399', cardBg: '#041510' },
-  { threshold: 300, title: 'Connector',     color: '#A78BFA', cardBg: '#100820' },
-  { threshold: 500, title: 'Champion',      color: '#F59E0B', cardBg: '#160E00' },
-  { threshold: 750, title: 'Social Master', color: '#F43F5E', cardBg: '#160306' },
-];
-
-function getLevel(xp) {
-  let level = LEVELS[0];
-  for (const l of LEVELS) { if (xp >= l.threshold) level = l; }
-  const idx = LEVELS.indexOf(level);
-  const next = LEVELS[idx + 1] ?? null;
-  const fromPrev = xp - level.threshold;
-  const toNext   = next ? next.threshold - level.threshold : 1;
-  return { ...level, index: idx, next, progress: Math.min(fromPrev / toNext, 1) };
 }
 
 // ─── Daily challenge (deterministic by date) ──────────────────────────────────
@@ -55,38 +37,17 @@ export default function ChallengesScreen() {
   const { dark, colors: C } = useTheme();
   const S = useMemo(() => makeStyles(C, dark), [C, dark]);
   const navigation = useNavigation();
+  const { completedIds, totalXP, levelInfo, loading, reload } = useData();
 
-  const [completedIds, setCompletedIds] = useState(new Set());
-  const [loading,      setLoading]      = useState(true);
-  const [completing,   setCompleting]   = useState(null);
-  const [filter,       setFilter]       = useState('All');
-  const [expanded,     setExpanded]     = useState(null);
+  const [completing, setCompleting] = useState(null);
+  const [filter,     setFilter]     = useState('All');
+  const [expanded,   setExpanded]   = useState(null);
 
-  const xpAnim      = useRef(new Animated.Value(0)).current;
-  const levelAnim   = useRef(new Animated.Value(0)).current;
-  const headerAnim  = useRef(new Animated.Value(0)).current;
+  const xpAnim     = useRef(new Animated.Value(0)).current;
+  const levelAnim  = useRef(new Animated.Value(0)).current;
+  const headerAnim = useRef(new Animated.Value(0)).current;
 
-  useFocusEffect(useCallback(() => {
-    loadData();
-  }, []));
-
-  async function loadData() {
-    setLoading(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    const { data } = await supabase
-      .from('completed_challenges')
-      .select('challenge_id')
-      .eq('user_id', user.id);
-    if (data) setCompletedIds(new Set(data.map(r => r.challenge_id)));
-    setLoading(false);
-  }
-
-  const totalXP = useMemo(
-    () => CHALLENGES.filter(c => completedIds.has(c.id)).reduce((s, c) => s + c.xp, 0),
-    [completedIds],
-  );
-  const levelInfo = useMemo(() => getLevel(totalXP), [totalXP]);
-  const daily     = useMemo(() => getDailyChallenge(), []);
+  const daily = useMemo(() => getDailyChallenge(), []);
 
   useEffect(() => {
     navigation.setOptions({
@@ -117,14 +78,11 @@ export default function ChallengesScreen() {
 
   async function handleComplete(challengeId) {
     setCompleting(challengeId);
-    const { data: { user } } = await supabase.auth.getUser();
-    const { error } = await supabase
-      .from('completed_challenges')
-      .insert({ user_id: user.id, challenge_id: challengeId });
-    if (!error) {
+    try {
+      await markChallengeComplete(challengeId);
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-      setCompletedIds(prev => new Set([...prev, challengeId]));
-    }
+      await reload();
+    } catch (_) {}
     setCompleting(null);
   }
 

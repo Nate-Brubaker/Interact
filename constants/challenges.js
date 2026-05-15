@@ -1,15 +1,15 @@
-export const CHALLENGES = [
+﻿export const CHALLENGES = [
   // ── Easy ─────────────────────────────────────────────────────────────────
   {
     id: 'ch_01', difficulty: 'Easy', xp: 10,
     title: 'Smile at a Stranger',
-    description: 'Make eye contact and smile at someone you pass today. Notice how they react — most people smile back.',
+    description: 'Make eye contact and smile at someone you pass today. Notice how they react - most people smile back.',
     icon: 'happy-outline', tag: 'Body Language',
   },
   {
     id: 'ch_02', difficulty: 'Easy', xp: 10,
     title: 'Give a Genuine Compliment',
-    description: "Tell someone something you genuinely appreciate about them — not their appearance, something real. Watch how it lands.",
+    description: "Tell someone something you genuinely appreciate about them - not their appearance, something real. Watch how it lands.",
     icon: 'heart-outline', tag: 'Kindness',
   },
   {
@@ -33,13 +33,13 @@ export const CHALLENGES = [
   {
     id: 'ch_15', difficulty: 'Easy', xp: 10,
     title: 'Say Good Morning',
-    description: "Greet at least 3 people with a warm 'good morning' today — coworkers, neighbors, strangers. Small wins add up.",
+    description: "Greet at least 3 people with a warm 'good morning' today - coworkers, neighbors, strangers. Small wins add up.",
     icon: 'sunny-outline', tag: 'Small Wins',
   },
   {
     id: 'ch_16', difficulty: 'Easy', xp: 15,
     title: 'Compliment a Stranger',
-    description: "Give an honest, specific compliment to someone you've never met. Then walk away — don't wait for anything in return.",
+    description: "Give an honest, specific compliment to someone you've never met. Then walk away - don't wait for anything in return.",
     icon: 'thumbs-up-outline', tag: 'Kindness',
   },
   {
@@ -53,43 +53,43 @@ export const CHALLENGES = [
   {
     id: 'ch_06', difficulty: 'Medium', xp: 25,
     title: 'Start a Conversation',
-    description: "Strike up a conversation with someone you've never spoken to before. Keep it going for at least 3 real exchanges — not just small talk.",
+    description: "Strike up a conversation with someone you've never spoken to before. Keep it going for at least 3 real exchanges - not just small talk.",
     icon: 'chatbubbles-outline', tag: 'Stranger',
   },
   {
     id: 'ch_07', difficulty: 'Medium', xp: 25,
     title: 'Ask for a Recommendation',
-    description: "Ask a stranger for their recommendation on anything — a restaurant, a book, a show. Let them talk and react with genuine curiosity.",
+    description: "Ask a stranger for their recommendation on anything - a restaurant, a book, a show. Let them talk and react with genuine curiosity.",
     icon: 'search-outline', tag: 'Stranger',
   },
   {
     id: 'ch_08', difficulty: 'Medium', xp: 25,
     title: 'Active Listening Challenge',
-    description: "Have a 5-minute conversation where you only ask questions and follow-ups — don't talk about yourself at all. Pure listening mode.",
+    description: "Have a 5-minute conversation where you only ask questions and follow-ups - don't talk about yourself at all. Pure listening mode.",
     icon: 'mic-outline', tag: 'Listening',
   },
   {
     id: 'ch_09', difficulty: 'Medium', xp: 25,
     title: 'Introduce Yourself First',
-    description: 'Be the first person to introduce yourself in a new social setting. Offer your name before being asked — own the moment.',
+    description: 'Be the first person to introduce yourself in a new social setting. Offer your name before being asked - own the moment.',
     icon: 'person-add-outline', tag: 'Connection',
   },
   {
     id: 'ch_10', difficulty: 'Medium', xp: 25,
     title: 'Disagree Respectfully',
-    description: 'Share a different opinion from someone in conversation. Be direct and calm — no hedging, no aggression, just honest pushback.',
+    description: 'Share a different opinion from someone in conversation. Be direct and calm - no hedging, no aggression, just honest pushback.',
     icon: 'shield-outline', tag: 'Assertiveness',
   },
   {
     id: 'ch_18', difficulty: 'Medium', xp: 30,
     title: 'Reconnect',
-    description: "Reach out to someone you haven't spoken to in over a year. No agenda — just say you were thinking of them.",
+    description: "Reach out to someone you haven't spoken to in over a year. No agenda - just say you were thinking of them.",
     icon: 'time-outline', tag: 'Reconnecting',
   },
   {
     id: 'ch_19', difficulty: 'Medium', xp: 30,
     title: 'Share Something Real',
-    description: "Tell someone something genuine about your life — a real feeling, a struggle, or a goal. No surface-level small talk. Go deeper.",
+    description: "Tell someone something genuine about your life - a real feeling, a struggle, or a goal. No surface-level small talk. Go deeper.",
     icon: 'lock-open-outline', tag: 'Vulnerability',
   },
   {
@@ -133,13 +133,13 @@ export const CHALLENGES = [
   {
     id: 'ch_22', difficulty: 'Hard', xp: 55,
     title: 'Cold Introduction',
-    description: "Walk up to someone standing alone and start a real conversation — not just pleasantries. Exchange contact info before leaving.",
+    description: "Walk up to someone standing alone and start a real conversation - not just pleasantries. Exchange contact info before leaving.",
     icon: 'flash-outline', tag: 'Stranger',
   },
   {
     id: 'ch_23', difficulty: 'Hard', xp: 75,
     title: 'Host Something',
-    description: 'Organize and host any social gathering — a dinner, a game night, a study session. You plan it, you invite people, you lead it.',
+    description: 'Organize and host any social gathering - a dinner, a game night, a study session. You plan it, you invite people, you lead it.',
     icon: 'home-outline', tag: 'Leadership',
   },
 ];

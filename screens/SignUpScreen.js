@@ -4,15 +4,16 @@ import {
   StyleSheet, Alert, KeyboardAvoidingView, Platform, ScrollView,
 } from 'react-native';
 import { supabase } from '../lib/supabase';
-import { LIGHT } from '../lib/theme';
+import { useTheme } from '../lib/theme';
 
 export default function SignUpScreen({ navigation }) {
-  const [firstName, setFirstName]   = useState('');
-  const [lastName, setLastName]     = useState('');
-  const [dob, setDob]               = useState('');
-  const [email, setEmail]           = useState('');
-  const [password, setPassword]     = useState('');
-  const [loading, setLoading]       = useState(false);
+  const { colors: C } = useTheme();
+  const [firstName, setFirstName] = useState('');
+  const [lastName,  setLastName]  = useState('');
+  const [dob,       setDob]       = useState('');
+  const [email,     setEmail]     = useState('');
+  const [password,  setPassword]  = useState('');
+  const [loading,   setLoading]   = useState(false);
 
   function formatDob(text) {
     const digits = text.replace(/\D/g, '').slice(0, 8);
@@ -40,32 +41,34 @@ export default function SignUpScreen({ navigation }) {
     setLoading(false);
   }
 
+  const inputStyle = [S.input, { borderColor: C.border, color: C.text, backgroundColor: C.card }];
+
   return (
     <KeyboardAvoidingView
-      style={styles.container}
+      style={[S.container, { backgroundColor: C.bg }]}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <ScrollView
-        contentContainerStyle={styles.inner}
+        contentContainerStyle={S.inner}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.logo}>Interact</Text>
-        <Text style={styles.tagline}>Create your account</Text>
+        <Text style={[S.logo, { color: C.accent }]}>Interact</Text>
+        <Text style={[S.tagline, { color: C.textMuted }]}>Create your account</Text>
 
-        <View style={styles.row}>
+        <View style={S.row}>
           <TextInput
-            style={[styles.input, styles.inputHalf]}
+            style={[inputStyle, S.inputHalf]}
             placeholder="First name"
-            placeholderTextColor="#9CA3AF"
+            placeholderTextColor={C.textMuted}
             value={firstName}
             onChangeText={setFirstName}
             autoCapitalize="words"
           />
           <TextInput
-            style={[styles.input, styles.inputHalf]}
+            style={[inputStyle, S.inputHalf]}
             placeholder="Last name"
-            placeholderTextColor="#9CA3AF"
+            placeholderTextColor={C.textMuted}
             value={lastName}
             onChangeText={setLastName}
             autoCapitalize="words"
@@ -73,40 +76,40 @@ export default function SignUpScreen({ navigation }) {
         </View>
 
         <TextInput
-          style={styles.input}
+          style={inputStyle}
           placeholder="Date of birth (MM/DD/YYYY)"
-          placeholderTextColor="#9CA3AF"
+          placeholderTextColor={C.textMuted}
           value={dob}
           onChangeText={t => setDob(formatDob(t))}
           keyboardType="number-pad"
           maxLength={10}
         />
-
         <TextInput
-          style={styles.input}
+          style={inputStyle}
           placeholder="Email"
-          placeholderTextColor="#9CA3AF"
+          placeholderTextColor={C.textMuted}
           value={email}
           onChangeText={setEmail}
           autoCapitalize="none"
           keyboardType="email-address"
         />
         <TextInput
-          style={styles.input}
+          style={inputStyle}
           placeholder="Password"
-          placeholderTextColor="#9CA3AF"
+          placeholderTextColor={C.textMuted}
           value={password}
           onChangeText={setPassword}
           secureTextEntry
         />
 
-        <TouchableOpacity style={styles.button} onPress={handleSignUp} disabled={loading}>
-          <Text style={styles.buttonText}>{loading ? 'Creating account...' : 'Create Account'}</Text>
+        <TouchableOpacity style={[S.button, { backgroundColor: C.accent }]} onPress={handleSignUp} disabled={loading}>
+          <Text style={S.buttonText}>{loading ? 'Creating account...' : 'Create Account'}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity onPress={() => navigation.navigate('Login')}>
-          <Text style={styles.link}>
-            Already have an account? <Text style={styles.linkBold}>Sign in</Text>
+          <Text style={[S.link, { color: C.textMuted }]}>
+            Already have an account?{' '}
+            <Text style={[S.linkBold, { color: C.accent }]}>Sign in</Text>
           </Text>
         </TouchableOpacity>
       </ScrollView>
@@ -114,41 +117,20 @@ export default function SignUpScreen({ navigation }) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff' },
-  inner: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 60,
-    flexGrow: 1,
-  },
-  logo: { fontSize: 40, fontWeight: 'bold', color: LIGHT.accent, marginBottom: 8 },
-  tagline: { fontSize: 16, color: '#6B7280', marginBottom: 40 },
-  row: { flexDirection: 'row', gap: 10, width: '100%', marginBottom: 0 },
+const S = StyleSheet.create({
+  container: { flex: 1 },
+  inner:     { alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24, paddingVertical: 60, flexGrow: 1 },
+  logo:      { fontSize: 40, fontWeight: 'bold', marginBottom: 8 },
+  tagline:   { fontSize: 16, marginBottom: 40 },
+  row:       { flexDirection: 'row', gap: 10, width: '100%' },
   input: {
-    width: '100%',
-    height: 52,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    fontSize: 16,
-    marginBottom: 12,
-    color: '#111827',
+    width: '100%', height: 52, borderWidth: 1,
+    borderRadius: 12, paddingHorizontal: 16,
+    fontSize: 16, marginBottom: 12,
   },
-  inputHalf: { flex: 1, width: undefined },
-  button: {
-    width: '100%',
-    height: 52,
-    backgroundColor: LIGHT.accent,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 8,
-    marginBottom: 20,
-  },
+  inputHalf:  { flex: 1, width: undefined },
+  button:     { width: '100%', height: 52, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginTop: 8, marginBottom: 20 },
   buttonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  link: { color: '#6B7280', fontSize: 14 },
-  linkBold: { color: LIGHT.accent, fontWeight: '600' },
+  link:       { fontSize: 14 },
+  linkBold:   { fontWeight: '600' },
 });

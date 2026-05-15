@@ -1,9 +1,12 @@
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../lib/theme';
 import LearnScreen from '../screens/LearnScreen';
+import LessonDetailScreen from '../screens/LessonDetailScreen';
+import LessonTrainerScreen from '../screens/LessonTrainerScreen';
 import TrainerScreen from '../screens/TrainerScreen';
 import ChallengesScreen from '../screens/ChallengesScreen';
 import ProfileScreen from '../screens/ProfileScreen';
@@ -16,6 +19,65 @@ const ICONS = {
   Challenges: 'trophy-outline',
   Profile:    'person-outline',
 };
+
+// ─── Per-tab stack navigators ─────────────────────────────────────────────────
+// Each tab owns its own stack so future screens (e.g. LessonDetail, SessionResults)
+// can be pushed without leaving the tab context.
+
+function stackScreenOptions(C) {
+  return {
+    headerStyle:      { backgroundColor: C.card },
+    headerTintColor:  C.text,
+    headerTitleStyle: { fontWeight: '700' },
+    headerShadowVisible: false,
+  };
+}
+
+const LearnStack      = createNativeStackNavigator();
+const TrainerStack    = createNativeStackNavigator();
+const ChallengesStack = createNativeStackNavigator();
+const ProfileStack    = createNativeStackNavigator();
+
+function LearnNavigator() {
+  const { colors: C } = useTheme();
+  return (
+    <LearnStack.Navigator screenOptions={stackScreenOptions(C)}>
+      <LearnStack.Screen name="LearnHome" component={LearnScreen} options={{ title: 'Learn' }} />
+      <LearnStack.Screen name="LessonDetail" component={LessonDetailScreen} options={{ headerShown: false }} />
+      <LearnStack.Screen name="LessonTrainer" component={LessonTrainerScreen} options={{ headerShown: false }} />
+    </LearnStack.Navigator>
+  );
+}
+
+function TrainerNavigator() {
+  const { colors: C } = useTheme();
+  return (
+    <TrainerStack.Navigator screenOptions={stackScreenOptions(C)}>
+      <TrainerStack.Screen name="TrainerHome" component={TrainerScreen} options={{ title: 'Trainer' }} />
+      {/* Future: <TrainerStack.Screen name="SessionResults" component={SessionResultsScreen} /> */}
+    </TrainerStack.Navigator>
+  );
+}
+
+function ChallengesNavigator() {
+  const { colors: C } = useTheme();
+  return (
+    <ChallengesStack.Navigator screenOptions={stackScreenOptions(C)}>
+      <ChallengesStack.Screen name="ChallengesHome" component={ChallengesScreen} options={{ title: 'Challenges' }} />
+    </ChallengesStack.Navigator>
+  );
+}
+
+function ProfileNavigator() {
+  const { colors: C } = useTheme();
+  return (
+    <ProfileStack.Navigator screenOptions={stackScreenOptions(C)}>
+      <ProfileStack.Screen name="ProfileHome" component={ProfileScreen} options={{ title: 'Profile' }} />
+    </ProfileStack.Navigator>
+  );
+}
+
+// ─── Floating tab bar ─────────────────────────────────────────────────────────
 
 function FloatingTabBar({ state, descriptors, navigation }) {
   const insets = useSafeAreaInsets();
@@ -65,23 +127,18 @@ const S = StyleSheet.create({
   label: { fontSize: 10, fontWeight: '600' },
 });
 
+// ─── Root tab navigator ───────────────────────────────────────────────────────
+
 export default function TabNavigator() {
-  const { colors: C } = useTheme();
   return (
     <Tab.Navigator
       tabBar={props => <FloatingTabBar {...props} />}
-      screenOptions={{
-        headerShown: true,
-        headerStyle: { backgroundColor: C.card },
-        headerTintColor: C.text,
-        headerTitleStyle: { fontWeight: '700' },
-        headerShadowVisible: false,
-      }}
+      screenOptions={{ headerShown: false }}
     >
-      <Tab.Screen name="Learn"      component={LearnScreen} />
-      <Tab.Screen name="Trainer"    component={TrainerScreen} />
-      <Tab.Screen name="Challenges" component={ChallengesScreen} />
-      <Tab.Screen name="Profile"    component={ProfileScreen} />
+      <Tab.Screen name="Learn"      component={LearnNavigator} />
+      <Tab.Screen name="Trainer"    component={TrainerNavigator} />
+      <Tab.Screen name="Challenges" component={ChallengesNavigator} />
+      <Tab.Screen name="Profile"    component={ProfileNavigator} />
     </Tab.Navigator>
   );
 }
